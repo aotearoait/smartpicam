@@ -85,7 +85,7 @@ class SmartPiCam:
             return False
     
     def _build_ffmpeg_grid_command(self) -> List[str]:
-        """Build FFmpeg command for grid layout using only basic, compatible options"""
+        """Build FFmpeg command for grid layout with correct framebuffer pixel format"""
         if not self.cameras:
             return []
         
@@ -115,8 +115,8 @@ class SmartPiCam:
         overlay_chain = "[bg]"
         for i, camera in enumerate(self.cameras):
             if i == len(self.cameras) - 1:
-                # Last overlay doesn't need output label
-                overlay = f"{overlay_chain}[v{i}]overlay={camera.x}:{camera.y}"
+                # Last overlay - add format conversion for framebuffer
+                overlay = f"{overlay_chain}[v{i}]overlay={camera.x}:{camera.y},format=rgb565le"
             else:
                 overlay = f"{overlay_chain}[v{i}]overlay={camera.x}:{camera.y}[tmp{i}]"
                 overlay_chain = f"[tmp{i}]"
@@ -127,7 +127,8 @@ class SmartPiCam:
         
         cmd.extend([
             "-filter_complex", filter_string,
-            "-f", "fbdev", "/dev/fb0"
+            "-f", "fbdev", "/dev/fb0",
+            "-pix_fmt", "rgb565le"  # Force correct pixel format for framebuffer
         ])
         
         return cmd
