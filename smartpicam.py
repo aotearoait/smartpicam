@@ -6,6 +6,7 @@ import subprocess
 import time
 import signal
 import sys
+import os
 from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import dataclass
@@ -48,7 +49,6 @@ class CameraStream:
             "cvlc",  # VLC without interface
             "--intf", "dummy",  # No interface
             "--no-audio",  # Disable audio completely
-            "--aout", "dummy",  # Use dummy audio output
             "--network-caching", str(self.display_config.network_timeout * 1000),
             "--rtsp-tcp",  # Force TCP for RTSP (more reliable)
             "--live-caching", "300",  # Lower latency caching
@@ -60,7 +60,6 @@ class CameraStream:
             "--verbose", "0",  # Reduced verbosity
             # Try different video output methods in order of preference
             "--vout", "xcb_x11,x11,fb",  # Fallback chain
-            "--no-xlib",  # Disable Xlib to avoid conflicts
             # Positioning and sizing
             "--video-x", str(self.camera.x),
             "--video-y", str(self.camera.y),
@@ -90,11 +89,15 @@ class CameraStream:
         
         try:
             cmd = self._build_vlc_command()
+            env = os.environ.copy()
+            env['DISPLAY'] = ':0'
+            
             self.process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN)
+                preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
+                env=env
             )
             
             # Give VLC time to initialize
@@ -143,7 +146,7 @@ class CameraStream:
         return self.start()
 
 class SmartPiCam:
-    def __init__(self, config_path: str = "/opt/smartpicam/config/smartpicam.json"):
+    def __init__(self, config_path: str = "config/smartpicam.json"):
         self.config_path = config_path
         self.streams: List[CameraStream] = []
         self.running = False
