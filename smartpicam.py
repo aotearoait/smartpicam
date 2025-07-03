@@ -89,17 +89,20 @@ class SmartPiCam:
         if not self.cameras:
             return []
         
-        # Base command
-        cmd = ["ffmpeg", "-y"]
+        # Base command with better error handling
+        cmd = ["ffmpeg", "-y", "-loglevel", "verbose"]
         
-        # Add input streams
+        # Add input streams with more robust connection handling
         filter_inputs = []
         for i, camera in enumerate(self.cameras):
             cmd.extend([
                 "-i", camera.url,
                 "-reconnect", "1",
                 "-reconnect_streamed", "1", 
-                "-reconnect_delay_max", "2"
+                "-reconnect_delay_max", "2",
+                "-rtsp_transport", "tcp",
+                "-stimeout", "5000000",  # 5 second timeout
+                "-rw_timeout", "5000000"  # 5 second read/write timeout
             ])
             filter_inputs.append(f"[{i}:v]")
         
@@ -131,17 +134,60 @@ class SmartPiCam:
         
         cmd.extend([
             "-filter_complex", filter_string,
-            "-f", "fbdev", "/dev/fb0",
-            "-loglevel", "warning"
+            "-f", "fbdev", "/dev/fb0"
         ])
         
         return cmd
+    
+    def _test_camera_streams(self) -> bool:
+        """Test individual camera streams before starting grid"""
+        self.logger.info("Testing individual camera streams...")
+        
+        for camera in self.cameras:
+            self.logger.info(f"Testing {camera.name}: {camera.url}")
+            
+            test_cmd = [
+                "ffmpeg", "-y",
+                "-i", camera.url,
+                "-rtsp_transport", "tcp",
+                "-stimeout", "5000000",
+                "-t", "1",  # Test for 1 second
+                "-f", "null", "-"
+            ]
+            
+            try:
+                result = subprocess.run(
+                    test_cmd,
+                    capture_output=True,
+                    timeout=10,
+                    text=True
+                )
+                
+                if result.returncode == 0:
+                    self.logger.info(f"✓ {camera.name} stream is accessible")
+                else:
+                    self.logger.warning(f"✗ {camera.name} stream test failed: {result.stderr}")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                self.logger.warning(f"✗ {camera.name} stream test timed out")
+                return False
+            except Exception as e:
+                self.logger.warning(f"✗ {camera.name} stream test error: {e}")
+                return False
+                
+        return True
     
     def start_display(self) -> bool:
         """Start the FFmpeg grid display"""
         if self.ffmpeg_process and self.ffmpeg_process.poll() is None:
             self.logger.warning("Display already running")
             return True
+        
+        # Test streams first
+        if not self._test_camera_streams():
+            self.logger.error("Camera stream tests failed - not starting display")
+            return False
             
         cmd = self._build_ffmpeg_grid_command()
         if not cmd:
@@ -149,7 +195,7 @@ class SmartPiCam:
             return False
         
         self.logger.info("Starting FFmpeg grid display...")
-        self.logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+        self.logger.info(f"FFmpeg command: {' '.join(cmd)}")
         
         try:
             # Set environment for framebuffer access
@@ -165,7 +211,7 @@ class SmartPiCam:
             )
             
             # Give FFmpeg time to initialize
-            time.sleep(5)
+            time.sleep(3)
             
             if self.ffmpeg_process.poll() is None:
                 self.logger.info("FFmpeg grid display started successfully")
@@ -173,7 +219,9 @@ class SmartPiCam:
                 return True
             else:
                 stdout, stderr = self.ffmpeg_process.communicate()
-                self.logger.error(f"FFmpeg failed to start: {stderr.decode()}")
+                self.logger.error(f"FFmpeg failed to start:")
+                self.logger.error(f"STDOUT: {stdout.decode() if stdout else 'None'}")
+                self.logger.error(f"STDERR: {stderr.decode() if stderr else 'None'}")
                 return False
                 
         except Exception as e:
@@ -215,6 +263,15 @@ class SmartPiCam:
                 
                 restart_count += 1
                 self.logger.warning(f"Display is unhealthy, attempting restart ({restart_count}/{self.display_config.restart_retries})")
+                
+                # Get error output before stopping
+                if self.ffmpeg_process:
+                    try:
+                        stdout, stderr = self.ffmpeg_process.communicate(timeout=1)
+                        if stderr:
+                            self.logger.error(f"FFmpeg error output: {stderr.decode()}")
+                    except:
+                        pass
                 
                 self.stop_display()
                 time.sleep(5)
