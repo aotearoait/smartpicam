@@ -58,8 +58,9 @@ class CameraStream:
             "--no-video-title-show",
             "--no-snapshot-preview",
             "--verbose", "0",  # Reduced verbosity
-            # Try different video output methods in order of preference
-            "--vout", "xcb_x11,x11,fb",  # Fallback chain
+            # Force specific display output - always use the Pi's physical display
+            "--vout", "xcb_x11",  # Use X11 output
+            "--x11-display", ":0",  # Force display :0
             # Positioning and sizing
             "--video-x", str(self.camera.x),
             "--video-y", str(self.camera.y),
@@ -89,8 +90,11 @@ class CameraStream:
         
         try:
             cmd = self._build_vlc_command()
+            
+            # Force environment to use physical display regardless of SSH session
             env = os.environ.copy()
-            env['DISPLAY'] = ':0'
+            env['DISPLAY'] = ':0'  # Always use the Pi's physical display
+            env['XAUTHORITY'] = '/home/pi/.Xauthority'  # Use pi user's X authority
             
             self.process = subprocess.Popen(
                 cmd,
@@ -151,6 +155,23 @@ class SmartPiCam:
         self.streams: List[CameraStream] = []
         self.running = False
         self.setup_logging()
+        # Force display environment setup
+        self.setup_display_environment()
+        
+    def setup_display_environment(self):
+        """Ensure we're using the correct display regardless of how the script is run"""
+        # Always force DISPLAY to :0 (Pi's physical display)
+        os.environ['DISPLAY'] = ':0'
+        os.environ['XAUTHORITY'] = '/home/pi/.Xauthority'
+        
+        # Try to allow connections to X server
+        try:
+            subprocess.run(['xhost', '+local:'], 
+                         capture_output=True, 
+                         timeout=5,
+                         env={'DISPLAY': ':0', 'XAUTHORITY': '/home/pi/.Xauthority'})
+        except:
+            pass  # Ignore if xhost fails
         
     def setup_logging(self):
         """Configure logging"""
@@ -159,6 +180,7 @@ class SmartPiCam:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam")
+        self.logger.info("SmartPiCam will display on physical monitor (DISPLAY=:0)")
         
     def load_config(self) -> bool:
         """Load configuration from JSON file"""
