@@ -1,7 +1,7 @@
 {
   "display": {
-    "screen_width": 1920,
-    "screen_height": 1080,
+    "screen_width": 2560,
+    "screen_height": 1440,
     "grid_cols": 3,
     "grid_rows": 3,
     "enable_rotation": false,
@@ -27,7 +27,7 @@
       "window_id": 1,
       "x": 1280,
       "y": 0,
-      "width": 640,
+      "width": 320,
       "height": 360,
       "enabled": true
     },
@@ -35,40 +35,120 @@
       "name": "South_mid_right",
       "url": "rtsp://192.168.1.56:7447/czdN1E4TJo0PWnT1",
       "window_id": 2,
-      "x": 1280,
-      "y": 360,
-      "width": 640,
+      "x": 1600,
+      "y": 0,
+      "width": 320,
       "height": 360,
       "enabled": true
     },
     {
-      "name": "West_lower_left",
+      "name": "Camera4",
       "url": "rtsp://camera4_url_here",
       "window_id": 3,
+      "x": 1920,
+      "y": 0,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera5",
+      "url": "rtsp://camera5_url_here",
+      "window_id": 4,
+      "x": 2240,
+      "y": 0,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera6",
+      "url": "rtsp://camera6_url_here",
+      "window_id": 5,
+      "x": 1280,
+      "y": 360,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera7",
+      "url": "rtsp://camera7_url_here",
+      "window_id": 6,
+      "x": 1600,
+      "y": 360,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera8",
+      "url": "rtsp://camera8_url_here",
+      "window_id": 7,
+      "x": 1920,
+      "y": 360,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera9",
+      "url": "rtsp://camera9_url_here",
+      "window_id": 8,
+      "x": 2240,
+      "y": 360,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "West_lower_left",
+      "url": "rtsp://camera10_url_here",
+      "window_id": 9,
       "x": 0,
       "y": 720,
-      "width": 640,
+      "width": 320,
       "height": 360,
       "enabled": false
     },
     {
       "name": "Vestibule_lower_center",
-      "url": "rtsp://camera5_url_here",
-      "window_id": 4,
-      "x": 640,
+      "url": "rtsp://camera11_url_here",
+      "window_id": 10,
+      "x": 320,
       "y": 720,
-      "width": 640,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera12",
+      "url": "rtsp://camera12_url_here",
+      "window_id": 11,
+      "x": 0,
+      "y": 1080,
+      "width": 320,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera13",
+      "url": "rtsp://camera13_url_here",
+      "window_id": 12,
+      "x": 320,
+      "y": 1080,
+      "width": 320,
       "height": 360,
       "enabled": false
     },
     {
       "name": "SW_lower_right",
-      "url": "rtsp://camera6_url_here",
-      "window_id": 5,
-      "x": 1280,
+      "url": "rtsp://camera14_url_here",
+      "window_id": 13,
+      "x": 640,
       "y": 720,
-      "width": 640,
-      "height": 360,
+      "width": 1920,
+      "height": 720,
       "enabled": false
     }
   ]
