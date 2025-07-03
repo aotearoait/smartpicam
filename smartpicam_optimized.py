@@ -44,12 +44,18 @@ class DisplayConfig:
     thread_count: int = 1  # Limit threads per stream
     preset: str = "ultrafast"  # For any encoding operations
     skip_failed_cameras: bool = True  # Skip cameras that fail testing
+    # Placeholder options
+    show_placeholders: bool = True  # Show placeholders for failed/disabled cameras
+    placeholder_image: str = "assets/camera_offline.png"  # Path to placeholder image
+    placeholder_text_color: str = "white"  # Text color for camera name
+    placeholder_bg_color: str = "black"  # Background color for placeholder
 
 class OptimizedSmartPiCam:
     def __init__(self, config_path: str = "config/smartpicam.json"):
         self.config_path = config_path
         self.cameras: List[Camera] = []
         self.working_cameras: List[Camera] = []  # Only cameras that pass testing
+        self.failed_cameras: List[Camera] = []   # Cameras that failed testing
         self.display_config: DisplayConfig = None
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.running = False
@@ -63,7 +69,7 @@ class OptimizedSmartPiCam:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam")
-        self.logger.info("Optimized SmartPiCam v2.1 - Performance Enhanced")
+        self.logger.info("Optimized SmartPiCam v2.1 - Performance Enhanced with Placeholders")
         
     def _hide_cursor(self):
         """Hide the console cursor to prevent flickering"""
@@ -129,6 +135,24 @@ class OptimizedSmartPiCam:
             self.logger.error(f"Failed to load config: {e}")
             return False
     
+    def _create_placeholder_for_camera(self, camera: Camera, reason: str = "offline") -> str:
+        """Create a placeholder input for a failed or disabled camera"""
+        if self.display_config.show_placeholders:
+            # Check if placeholder image exists
+            placeholder_path = self.display_config.placeholder_image
+            if os.path.exists(placeholder_path):
+                # Use image file as placeholder
+                return f"-loop 1 -i {placeholder_path}"
+            else:
+                # Create text-based placeholder using FFmpeg's color and drawtext filters
+                text = f"{camera.name}\\n({reason.upper()})"
+                placeholder = (f"-f lavfi -i color=c={self.display_config.placeholder_bg_color}:"
+                             f"s={camera.width}x{camera.height}:r=25")
+                return placeholder
+        else:
+            # Return black screen
+            return f"-f lavfi -i color=c=black:s={camera.width}x{camera.height}:r=25"
+    
     def _get_optimal_stream_params(self, camera: Camera) -> List[str]:
         """Get optimized parameters for each camera stream"""
         params = []
@@ -160,12 +184,8 @@ class OptimizedSmartPiCam:
         return params
     
     def _build_optimized_ffmpeg_command(self) -> List[str]:
-        """Build optimized FFmpeg command with better resource management"""
-        # Use only working cameras for FFmpeg command
-        cameras_to_use = self.working_cameras if self.working_cameras else self.cameras
-        
-        if not cameras_to_use:
-            self.logger.error("No working cameras available for FFmpeg")
+        """Build optimized FFmpeg command with placeholders for failed cameras"""
+        if not self.cameras:
             return []
         
         cmd = ["ffmpeg", "-y"]
@@ -177,11 +197,28 @@ class OptimizedSmartPiCam:
             "-err_detect", "ignore_err"  # Ignore minor errors
         ])
         
-        # Add optimized input streams (only for working cameras)
-        for i, camera in enumerate(cameras_to_use):
-            stream_params = self._get_optimal_stream_params(camera)
-            cmd.extend(stream_params)
-            cmd.extend(["-i", camera.url])
+        # Build input list with both working cameras and placeholders
+        input_sources = []
+        camera_map = {}  # Maps input index to camera
+        
+        for camera in self.cameras:
+            input_index = len(input_sources)
+            camera_map[input_index] = camera
+            
+            if camera in self.working_cameras:
+                # Working camera - use actual stream
+                stream_params = self._get_optimal_stream_params(camera)
+                cmd.extend(stream_params)
+                cmd.extend(["-i", camera.url])
+                input_sources.append(("camera", camera))
+                self.logger.debug(f"Input {input_index}: Working camera {camera.name}")
+            else:
+                # Failed camera - use placeholder
+                reason = "timeout" if camera in self.failed_cameras else "offline"
+                placeholder_input = self._create_placeholder_for_camera(camera, reason)
+                cmd.extend(placeholder_input.split())
+                input_sources.append(("placeholder", camera))
+                self.logger.debug(f"Input {input_index}: Placeholder for {camera.name} ({reason})")
         
         # Build optimized filter complex
         filter_parts = []
@@ -190,15 +227,30 @@ class OptimizedSmartPiCam:
         bg_filter = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}:rate=25[bg]"
         filter_parts.append(bg_filter)
         
-        # Process each working camera with minimal operations
+        # Process each input (camera or placeholder)
         overlay_input = "[bg]"
-        for i, camera in enumerate(cameras_to_use):
-            # Direct scale to target size with efficient scaling algorithm
-            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}:flags=fast_bilinear,fps=25[v{i}]"
+        for i, (source_type, camera) in enumerate(input_sources):
+            if source_type == "camera":
+                # Normal camera processing
+                scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}:flags=fast_bilinear,fps=25[v{i}]"
+            else:
+                # Placeholder processing with text overlay
+                if self.display_config.show_placeholders and not os.path.exists(self.display_config.placeholder_image):
+                    # Add text overlay for camera name and status
+                    reason = "TIMEOUT" if camera in self.failed_cameras else "OFFLINE"
+                    text_filter = (f"[{i}:v]scale={camera.width}:{camera.height},"
+                                 f"drawtext=text='{camera.name}\\n({reason})':fontsize=24:"
+                                 f"fontcolor={self.display_config.placeholder_text_color}:"
+                                 f"x=(w-text_w)/2:y=(h-text_h)/2[v{i}]")
+                    scale_filter = text_filter
+                else:
+                    # Just scale the placeholder
+                    scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
+            
             filter_parts.append(scale_filter)
             
             # Chain overlays
-            if i == len(cameras_to_use) - 1:
+            if i == len(input_sources) - 1:
                 # Last overlay with framebuffer format
                 overlay_filter = f"{overlay_input}[v{i}]overlay={camera.x}:{camera.y}:format=auto,format=rgb565le[out]"
             else:
@@ -268,20 +320,20 @@ class OptimizedSmartPiCam:
                     self.logger.warning(f"Test error for {camera.name}: {e}")
                     failed_cameras.append(camera)
         
-        # Update working cameras list
+        # Update camera lists
         self.working_cameras = working_cameras
+        self.failed_cameras = failed_cameras
         
         self.logger.info(f"Stream test complete: {len(working_cameras)}/{len(self.cameras)} cameras working")
         
         if failed_cameras:
             failed_names = [cam.name for cam in failed_cameras]
-            if self.display_config.skip_failed_cameras:
-                self.logger.warning(f"Skipping failed cameras: {', '.join(failed_names)}")
+            if self.display_config.show_placeholders:
+                self.logger.info(f"Will show placeholders for failed cameras: {', '.join(failed_names)}")
             else:
-                self.logger.warning(f"Failed cameras: {', '.join(failed_names)} - will attempt anyway")
-                self.working_cameras = self.cameras  # Use all cameras anyway
+                self.logger.warning(f"Skipping failed cameras: {', '.join(failed_names)}")
         
-        return len(working_cameras) > 0
+        return len(self.cameras) > 0  # Continue if we have any cameras (working or placeholders)
     
     def _optimize_system_for_video(self):
         """Apply system-level optimizations for video processing"""
@@ -330,21 +382,29 @@ class OptimizedSmartPiCam:
         # Hide cursor
         self._hide_cursor()
         
-        # Test streams in parallel and filter working ones
+        # Test streams in parallel and identify working/failed cameras
         if not self._test_camera_streams_parallel():
-            self.logger.error("No working camera streams found")
+            self.logger.error("No cameras configured")
             return False
         
-        # Show which cameras will be displayed
+        # Show status of all cameras
         working_names = [cam.name for cam in self.working_cameras]
-        self.logger.info(f"Starting display with cameras: {', '.join(working_names)}")
+        failed_names = [cam.name for cam in self.failed_cameras]
+        
+        if working_names:
+            self.logger.info(f"Working cameras: {', '.join(working_names)}")
+        if failed_names:
+            if self.display_config.show_placeholders:
+                self.logger.info(f"Showing placeholders for: {', '.join(failed_names)}")
+            else:
+                self.logger.info(f"Skipping failed cameras: {', '.join(failed_names)}")
             
         cmd = self._build_optimized_ffmpeg_command()
         if not cmd:
             self.logger.error("Failed to build FFmpeg command")
             return False
         
-        self.logger.info("Starting optimized FFmpeg display...")
+        self.logger.info("Starting optimized FFmpeg display with placeholders...")
         self.logger.debug(f"FFmpeg command: {' '.join(cmd)}")
         
         try:
@@ -383,16 +443,19 @@ class OptimizedSmartPiCam:
     def _log_performance_info(self):
         """Log performance and resource information"""
         self.logger.info("Performance configuration:")
+        self.logger.info(f"  Total cameras: {len(self.cameras)}")
         self.logger.info(f"  Working cameras: {len(self.working_cameras)}")
+        self.logger.info(f"  Failed cameras: {len(self.failed_cameras)}")
+        self.logger.info(f"  Show placeholders: {self.display_config.show_placeholders}")
         self.logger.info(f"  Hardware accel: {self.display_config.hardware_accel}")
         self.logger.info(f"  Low latency: {self.display_config.low_latency}")
         self.logger.info(f"  Threads per stream: {self.display_config.thread_count}")
         self.logger.info(f"  Buffer size: {self.display_config.buffer_size}")
-        self.logger.info(f"  Skip failed cameras: {self.display_config.skip_failed_cameras}")
         
-        # Log camera layout (only working cameras)
-        for camera in self.working_cameras:
-            self.logger.info(f"  {camera.name}: {camera.width}x{camera.height} at ({camera.x},{camera.y})")
+        # Log camera layout for all cameras
+        for camera in self.cameras:
+            status = "WORKING" if camera in self.working_cameras else "PLACEHOLDER"
+            self.logger.info(f"  {camera.name}: {camera.width}x{camera.height} at ({camera.x},{camera.y}) [{status}]")
     
     def stop_display(self):
         """Stop the FFmpeg display"""
