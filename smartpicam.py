@@ -74,9 +74,7 @@ class StreamManager:
     def _build_vlc_command(self) -> List[str]:
         """Build VLC command with Pi 5 optimized settings"""
         cmd = [
-            "sudo", "-u", "pi",  # Run as pi user to avoid root restrictions
-            "env", "DISPLAY=:0", "XDG_RUNTIME_DIR=/run/user/1000",  # Set environment
-            "cvlc",  # VLC without interface
+            "cvlc",  # VLC without interface - no sudo needed when service runs as pi
             "--intf", "dummy",  # No interface
             "--no-audio",  # Disable audio for camera feeds
             "--network-caching", str(self.display_config.network_timeout * 1000),
@@ -113,7 +111,8 @@ class StreamManager:
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                preexec_fn=os.setsid  # Create new process group
+                preexec_fn=os.setsid,  # Create new process group
+                env=dict(os.environ, DISPLAY=":0", XDG_RUNTIME_DIR="/run/user/1000")
             )
             
             # Give VLC time to initialize
