@@ -1,0 +1,120 @@
+{
+  "display": {
+    "screen_width": 2560,
+    "screen_height": 1440,
+    "grid_cols": 3,
+    "grid_rows": 3,
+    "enable_rotation": false,
+    "rotation_interval": 30,
+    "network_timeout": 15,
+    "restart_retries": 3,
+    "log_level": "INFO",
+    "hardware_accel": true,
+    "low_latency": true,
+    "buffer_size": "32k",
+    "thread_count": 1,
+    "preset": "ultrafast"
+  },
+  "cameras": [
+    {
+      "name": "Living_Area",
+      "url": "rtsp://admin:Seven0f9!@192.168.1.101:554/h264Preview_01_sub",
+      "window_id": 0,
+      "x": 0,
+      "y": 0,
+      "width": 854,
+      "height": 480,
+      "enabled": true
+    },
+    {
+      "name": "Garage",
+      "url": "rtsp://192.168.1.56:7447/wmnkT750iVQsTaR6",
+      "window_id": 1,
+      "x": 854,
+      "y": 0,
+      "width": 853,
+      "height": 480,
+      "enabled": true
+    },
+    {
+      "name": "Entrance",
+      "url": "rtsp://192.168.1.56:7447/czdN1E4TJo0PWnT1",
+      "window_id": 2,
+      "x": 1707,
+      "y": 0,
+      "width": 853,
+      "height": 480,
+      "enabled": true
+    },
+    {
+      "name": "Driveway",
+      "url": "rtsp://192.168.1.56:7447/IluvbZ3Dr7HeuZl5",
+      "window_id": 3,
+      "x": 0,
+      "y": 480,
+      "width": 854,
+      "height": 480,
+      "enabled": true
+    },
+    {
+      "name": "Aria",
+      "url": "rtsp://admin:937JhR2021!@192.168.1.208:554/h264Preview_01_sub",
+      "window_id": 4,
+      "x": 854,
+      "y": 480,
+      "width": 853,
+      "height": 480,
+      "enabled": true
+    },
+    {
+      "name": "West_Camera",
+      "url": "rtsp://camera6_url_here",
+      "window_id": 5,
+      "x": 1707,
+      "y": 480,
+      "width": 853,
+      "height": 480,
+      "enabled": false
+    },
+    {
+      "name": "Vestibule",
+      "url": "rtsp://camera7_url_here",
+      "window_id": 6,
+      "x": 0,
+      "y": 960,
+      "width": 854,
+      "height": 480,
+      "enabled": false
+    },
+    {
+      "name": "Camera8",
+      "url": "rtsp://camera8_url_here",
+      "window_id": 7,
+      "x": 854,
+      "y": 960,
+      "width": 853,
+      "height": 480,
+      "enabled": false
+    },
+    {
+      "name": "Camera9",
+      "url": "rtsp://camera9_url_here",
+      "window_id": 8,
+      "x": 1707,
+      "y": 960,
+      "width": 853,
+      "height": 480,
+      "enabled": false
+    },
+    {
+      "name": "Timaru",
+      "url": "rtsp://121.75.89.44:554/s1",
+      "window_id": 9,
+      "x": 640,
+      "y": 360,
+      "width": 1280,
+      "height": 720,
+      "enabled": true
+    }
+  ]
+}
