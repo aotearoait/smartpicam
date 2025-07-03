@@ -1,0 +1,61 @@
+[Unit]
+Description=SmartPiCam - Modern RTSP Camera Display System
+Documentation=https://github.com/aotearoait/smartpicam
+After=network-online.target graphical-session.target sound.target
+Wants=network-online.target
+RequiresMountsFor=/etc/smartpicam
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/local/bin/smartpicam --config /etc/smartpicam start
+ExecStop=/usr/local/bin/smartpicam --config /etc/smartpicam stop
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Environment
+Environment=DISPLAY=:0
+Environment=HOME=/root
+Environment=XDG_RUNTIME_DIR=/run/user/0
+
+# Working directory
+WorkingDirectory=/etc/smartpicam
+
+# Process management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Security settings
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/etc/smartpicam /var/log /tmp /run
+ReadOnlyPaths=/usr/local/bin/smartpicam
+
+# Resource limits
+LimitNOFILE=1024
+LimitNPROC=100
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smartpicam
+SyslogLevel=info
+
+# Capabilities needed for video/DRM access
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+
+[Install]
+WantedBy=graphical.target
+Also=smartpicam-watchdog.timer
