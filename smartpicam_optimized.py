@@ -49,6 +49,9 @@ class DisplayConfig:
     placeholder_image: str = "assets/camera_offline.png"  # Path to placeholder image
     placeholder_text_color: str = "white"  # Text color for camera name
     placeholder_bg_color: str = "black"  # Background color for placeholder
+    # Retry options
+    camera_retry_interval: int = 30  # Test failed cameras every N seconds
+    enable_camera_retry: bool = True  # Enable automatic camera recovery
 
 class OptimizedSmartPiCam:
     def __init__(self, config_path: str = "config/smartpicam.json"):
@@ -60,6 +63,7 @@ class OptimizedSmartPiCam:
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.running = False
         self.cursor_hidden = False
+        self.camera_status_changed = threading.Event()  # Signal when camera status changes
         self.setup_logging()
         
     def setup_logging(self):
@@ -69,7 +73,7 @@ class OptimizedSmartPiCam:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam")
-        self.logger.info("Optimized SmartPiCam v2.1 - Performance Enhanced with Placeholders")
+        self.logger.info("Optimized SmartPiCam v2.2 - Performance Enhanced with Auto-Recovery")
         
     def _hide_cursor(self):
         """Hide the console cursor to prevent flickering"""
@@ -128,6 +132,10 @@ class OptimizedSmartPiCam:
             # Performance recommendations
             if len(self.cameras) > 6:
                 self.logger.warning(f"High camera count ({len(self.cameras)}) detected. Consider using lower resolution streams.")
+            
+            # Log retry settings
+            if self.display_config.enable_camera_retry:
+                self.logger.info(f"Camera auto-recovery enabled: testing failed cameras every {self.display_config.camera_retry_interval}s")
             
             return True
             
@@ -271,6 +279,23 @@ class OptimizedSmartPiCam:
         
         return cmd
     
+    def _test_single_camera(self, camera: Camera) -> bool:
+        """Test a single camera stream"""
+        test_cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-rtsp_transport", "tcp",
+            "-timeout", "8000000",  # 8 second timeout for retry tests
+            "-i", camera.url,
+            "-t", "1",
+            "-f", "null", "-"
+        ]
+        
+        try:
+            result = subprocess.run(test_cmd, capture_output=True, timeout=10, text=True)
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, Exception):
+            return False
+    
     def _test_camera_streams_parallel(self) -> bool:
         """Test camera streams in parallel and filter out failed ones"""
         self.logger.info("Testing camera streams in parallel...")
@@ -334,6 +359,45 @@ class OptimizedSmartPiCam:
                 self.logger.warning(f"Skipping failed cameras: {', '.join(failed_names)}")
         
         return len(self.cameras) > 0  # Continue if we have any cameras (working or placeholders)
+    
+    def _retry_failed_cameras(self):
+        """Periodically test failed cameras and bring them back online"""
+        while self.running and self.display_config.enable_camera_retry:
+            time.sleep(self.display_config.camera_retry_interval)
+            
+            if not self.running:
+                break
+                
+            if not self.failed_cameras:
+                continue  # No failed cameras to retry
+            
+            self.logger.info(f"Retrying failed cameras: {[cam.name for cam in self.failed_cameras]}")
+            
+            # Test failed cameras
+            recovered_cameras = []
+            still_failed = []
+            
+            for camera in self.failed_cameras:
+                if self._test_single_camera(camera):
+                    self.logger.info(f"🔄 {camera.name} recovered - bringing back online")
+                    recovered_cameras.append(camera)
+                else:
+                    still_failed.append(camera)
+            
+            # Update camera lists if any recovered
+            if recovered_cameras:
+                self.working_cameras.extend(recovered_cameras)
+                self.failed_cameras = still_failed
+                
+                # Signal that camera status changed (triggers display restart)
+                self.camera_status_changed.set()
+                
+                recovered_names = [cam.name for cam in recovered_cameras]
+                self.logger.info(f"✅ Cameras recovered: {', '.join(recovered_names)}")
+                
+                if still_failed:
+                    still_failed_names = [cam.name for cam in still_failed]
+                    self.logger.info(f"Still failed: {', '.join(still_failed_names)}")
     
     def _optimize_system_for_video(self):
         """Apply system-level optimizations for video processing"""
@@ -447,6 +511,8 @@ class OptimizedSmartPiCam:
         self.logger.info(f"  Working cameras: {len(self.working_cameras)}")
         self.logger.info(f"  Failed cameras: {len(self.failed_cameras)}")
         self.logger.info(f"  Show placeholders: {self.display_config.show_placeholders}")
+        self.logger.info(f"  Auto-recovery: {self.display_config.enable_camera_retry}")
+        self.logger.info(f"  Retry interval: {self.display_config.camera_retry_interval}s")
         self.logger.info(f"  Hardware accel: {self.display_config.hardware_accel}")
         self.logger.info(f"  Low latency: {self.display_config.low_latency}")
         self.logger.info(f"  Threads per stream: {self.display_config.thread_count}")
@@ -477,26 +543,37 @@ class OptimizedSmartPiCam:
         return self.ffmpeg_process is not None and self.ffmpeg_process.poll() is None
         
     def monitor_display(self):
-        """Monitor and restart display if it fails"""
+        """Monitor and restart display if it fails or cameras recover"""
         restart_count = 0
         
         while self.running:
-            if not self.is_healthy():
-                if restart_count >= self.display_config.restart_retries:
-                    self.logger.error(f"Max restart attempts ({self.display_config.restart_retries}) reached")
-                    break
-                
-                restart_count += 1
-                self.logger.warning(f"Display unhealthy, restarting ({restart_count}/{self.display_config.restart_retries})")
-                
-                # Log error output
-                if self.ffmpeg_process:
-                    try:
-                        stdout, stderr = self.ffmpeg_process.communicate(timeout=1)
-                        if stderr:
-                            self.logger.error(f"FFmpeg error: {stderr.decode()}")
-                    except:
-                        pass
+            # Check if display is unhealthy
+            display_failed = not self.is_healthy()
+            
+            # Check if camera status changed (cameras recovered)
+            camera_status_changed = self.camera_status_changed.is_set()
+            
+            if display_failed or camera_status_changed:
+                if camera_status_changed:
+                    self.logger.info("Camera status changed - restarting display to include recovered cameras")
+                    self.camera_status_changed.clear()
+                    restart_count = 0  # Reset restart count for camera recovery
+                elif display_failed:
+                    if restart_count >= self.display_config.restart_retries:
+                        self.logger.error(f"Max restart attempts ({self.display_config.restart_retries}) reached")
+                        break
+                    
+                    restart_count += 1
+                    self.logger.warning(f"Display unhealthy, restarting ({restart_count}/{self.display_config.restart_retries})")
+                    
+                    # Log error output
+                    if self.ffmpeg_process:
+                        try:
+                            stdout, stderr = self.ffmpeg_process.communicate(timeout=1)
+                            if stderr:
+                                self.logger.error(f"FFmpeg error: {stderr.decode()}")
+                        except:
+                            pass
                 
                 self.stop_display()
                 time.sleep(3)  # Shorter wait for restart
@@ -520,6 +597,12 @@ class OptimizedSmartPiCam:
         # Start monitoring thread
         monitor_thread = threading.Thread(target=self.monitor_display, daemon=True)
         monitor_thread.start()
+        
+        # Start camera retry thread if enabled
+        if self.display_config.enable_camera_retry:
+            retry_thread = threading.Thread(target=self._retry_failed_cameras, daemon=True)
+            retry_thread.start()
+            self.logger.info("Camera auto-recovery thread started")
         
         try:
             while self.running:
