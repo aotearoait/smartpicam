@@ -1,0 +1,121 @@
+{
+  "display": {
+    "screen_width": 2560,
+    "screen_height": 1440,
+    "grid_cols": 3,
+    "grid_rows": 3,
+    "enable_rotation": false,
+    "rotation_interval": 30,
+    "network_timeout": 30,
+    "restart_retries": 3,
+    "log_level": "INFO",
+    "show_placeholders": true,
+    "placeholder_image": "feed-unavailable.png",
+    "placeholder_text_color": "white",
+    "placeholder_bg_color": "darkgray",
+    "camera_retry_interval": 30,
+    "enable_camera_retry": true
+  },
+  "cameras": [
+    {
+      "name": "Camera1",
+      "url": "rtsp://username:password@192.168.1.100:554/stream",
+      "window_id": 0,
+      "x": 0,
+      "y": 0,
+      "width": 1280,
+      "height": 720,
+      "enabled": true
+    },
+    {
+      "name": "Camera2",
+      "url": "rtsp://192.168.1.101:554/stream",
+      "window_id": 1,
+      "x": 1280,
+      "y": 0,
+      "width": 640,
+      "height": 360,
+      "enabled": true
+    },
+    {
+      "name": "Camera3",
+      "url": "rtsp://192.168.1.102:554/stream",
+      "window_id": 2,
+      "x": 1920,
+      "y": 0,
+      "width": 640,
+      "height": 360,
+      "enabled": true
+    },
+    {
+      "name": "Camera4",
+      "url": "rtsp://192.168.1.103:554/stream",
+      "window_id": 3,
+      "x": 1280,
+      "y": 360,
+      "width": 640,
+      "height": 360,
+      "enabled": true
+    },
+    {
+      "name": "Camera5",
+      "url": "rtsp://192.168.1.104:554/stream",
+      "window_id": 4,
+      "x": 1920,
+      "y": 360,
+      "width": 640,
+      "height": 360,
+      "enabled": true
+    },
+    {
+      "name": "Camera6",
+      "url": "rtsp://192.168.1.105:554/stream",
+      "window_id": 5,
+      "x": 0,
+      "y": 720,
+      "width": 640,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera7",
+      "url": "rtsp://192.168.1.106:554/stream",
+      "window_id": 6,
+      "x": 640,
+      "y": 720,
+      "width": 640,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera8",
+      "url": "rtsp://192.168.1.107:554/stream",
+      "window_id": 7,
+      "x": 0,
+      "y": 1080,
+      "width": 640,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera9",
+      "url": "rtsp://192.168.1.108:554/stream",
+      "window_id": 8,
+      "x": 640,
+      "y": 1080,
+      "width": 640,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "Camera10",
+      "url": "rtsp://192.168.1.109:554/stream",
+      "window_id": 9,
+      "x": 1280,
+      "y": 720,
+      "width": 1280,
+      "height": 720,
+      "enabled": false
+    }
+  ]
+}
