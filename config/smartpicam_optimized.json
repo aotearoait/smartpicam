@@ -13,7 +13,8 @@
     "low_latency": true,
     "buffer_size": "32k",
     "thread_count": 1,
-    "preset": "ultrafast"
+    "preset": "ultrafast",
+    "skip_failed_cameras": true
   },
   "cameras": [
     {
@@ -67,14 +68,14 @@
       "enabled": true
     },
     {
-      "name": "West_Camera",
-      "url": "rtsp://camera6_url_here",
+      "name": "Hillmortin",
+      "url": "rtsp://118.93.196.155:7447/Fnu8WaVBFc46YsPd",
       "window_id": 5,
       "x": 1707,
       "y": 480,
       "width": 853,
       "height": 480,
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "Vestibule",
