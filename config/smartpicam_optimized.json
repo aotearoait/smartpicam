@@ -18,7 +18,9 @@
     "show_placeholders": true,
     "placeholder_image": "feed-unavailable.png",
     "placeholder_text_color": "white",
-    "placeholder_bg_color": "darkgray"
+    "placeholder_bg_color": "darkgray",
+    "camera_retry_interval": 30,
+    "enable_camera_retry": true
   },
   "cameras": [
     {
