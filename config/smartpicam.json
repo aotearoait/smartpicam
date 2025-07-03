@@ -1,0 +1,55 @@
+{
+  "display": {
+    "screen_width": 1920,
+    "screen_height": 1080,
+    "grid_cols": 2,
+    "grid_rows": 2,
+    "enable_rotation": false,
+    "rotation_interval": 30,
+    "network_timeout": 30,
+    "restart_retries": 3,
+    "log_level": "INFO"
+  },
+  "cameras": [
+    {
+      "name": "camera1",
+      "url": "rtsp://admin:password@192.168.1.100:554/stream1",
+      "window_id": 0,
+      "x": 0,
+      "y": 0,
+      "width": 960,
+      "height": 540,
+      "enabled": false
+    },
+    {
+      "name": "camera2", 
+      "url": "rtsp://admin:password@192.168.1.101:554/stream1",
+      "window_id": 1,
+      "x": 960,
+      "y": 0,
+      "width": 960,
+      "height": 540,
+      "enabled": false
+    },
+    {
+      "name": "camera3",
+      "url": "rtsp://admin:password@192.168.1.102:554/stream1", 
+      "window_id": 2,
+      "x": 0,
+      "y": 540,
+      "width": 960,
+      "height": 540,
+      "enabled": false
+    },
+    {
+      "name": "camera4",
+      "url": "rtsp://admin:password@192.168.1.103:554/stream1",
+      "window_id": 3,
+      "x": 960,
+      "y": 540,
+      "width": 960,
+      "height": 540,
+      "enabled": false
+    }
+  ]
+}
