@@ -89,11 +89,10 @@ class SmartPiCam:
         if not self.cameras:
             return []
         
-        # Base command with better error handling
-        cmd = ["ffmpeg", "-y", "-loglevel", "verbose"]
+        # Base command with compatible options for Pi FFmpeg
+        cmd = ["ffmpeg", "-y", "-loglevel", "warning"]
         
-        # Add input streams with more robust connection handling
-        filter_inputs = []
+        # Add input streams with Pi-compatible options
         for i, camera in enumerate(self.cameras):
             cmd.extend([
                 "-i", camera.url,
@@ -101,21 +100,20 @@ class SmartPiCam:
                 "-reconnect_streamed", "1", 
                 "-reconnect_delay_max", "2",
                 "-rtsp_transport", "tcp",
-                "-stimeout", "5000000",  # 5 second timeout
-                "-rw_timeout", "5000000"  # 5 second read/write timeout
+                "-timeout", "5000000"  # Use timeout instead of stimeout
             ])
-            filter_inputs.append(f"[{i}:v]")
         
         # Build filter graph for custom grid layout
         filter_complex = []
         
         # Scale each input to the desired size and add labels
         for i, camera in enumerate(self.cameras):
-            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
+            # Add format conversion and scaling
+            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height},format=yuv420p[v{i}]"
             filter_complex.append(scale_filter)
         
         # Create background
-        background = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}[bg]"
+        background = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}:rate=25:duration=3600[bg]"
         filter_complex.append(background)
         
         # Overlay each camera at its position
@@ -134,7 +132,8 @@ class SmartPiCam:
         
         cmd.extend([
             "-filter_complex", filter_string,
-            "-f", "fbdev", "/dev/fb0"
+            "-f", "fbdev", "/dev/fb0",
+            "-r", "25"  # Frame rate
         ])
         
         return cmd
@@ -150,7 +149,7 @@ class SmartPiCam:
                 "ffmpeg", "-y",
                 "-i", camera.url,
                 "-rtsp_transport", "tcp",
-                "-stimeout", "5000000",
+                "-timeout", "5000000",
                 "-t", "1",  # Test for 1 second
                 "-f", "null", "-"
             ]
@@ -159,7 +158,7 @@ class SmartPiCam:
                 result = subprocess.run(
                     test_cmd,
                     capture_output=True,
-                    timeout=10,
+                    timeout=15,
                     text=True
                 )
                 
@@ -167,16 +166,15 @@ class SmartPiCam:
                     self.logger.info(f"✓ {camera.name} stream is accessible")
                 else:
                     self.logger.warning(f"✗ {camera.name} stream test failed: {result.stderr}")
-                    return False
+                    # Don't fail completely - maybe stream is slow to start
+                    self.logger.info(f"Continuing despite test failure for {camera.name}")
                     
             except subprocess.TimeoutExpired:
-                self.logger.warning(f"✗ {camera.name} stream test timed out")
-                return False
+                self.logger.warning(f"✗ {camera.name} stream test timed out - continuing anyway")
             except Exception as e:
-                self.logger.warning(f"✗ {camera.name} stream test error: {e}")
-                return False
+                self.logger.warning(f"✗ {camera.name} stream test error: {e} - continuing anyway")
                 
-        return True
+        return True  # Always continue - let FFmpeg handle connection issues
     
     def start_display(self) -> bool:
         """Start the FFmpeg grid display"""
@@ -211,7 +209,7 @@ class SmartPiCam:
             )
             
             # Give FFmpeg time to initialize
-            time.sleep(3)
+            time.sleep(5)
             
             if self.ffmpeg_process.poll() is None:
                 self.logger.info("FFmpeg grid display started successfully")
