@@ -306,6 +306,18 @@ class OptimizedSmartPiCam:
         except Exception as e:
             self.logger.warning(f"Could not apply system optimizations: {e}")
     
+    def _setup_ffmpeg_preexec(self):
+        """Setup function to be called before FFmpeg execution"""
+        # Ignore SIGINT for FFmpeg process
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        
+        # Try to set higher priority, but don't fail if it doesn't work
+        try:
+            os.setpriority(os.PRIO_PROCESS, 0, -5)
+        except (OSError, PermissionError):
+            # Not critical if this fails
+            pass
+    
     def start_display(self) -> bool:
         """Start the optimized FFmpeg display"""
         if self.ffmpeg_process and self.ffmpeg_process.poll() is None:
@@ -346,10 +358,7 @@ class OptimizedSmartPiCam:
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                preexec_fn=lambda: (
-                    signal.signal(signal.SIGINT, signal.SIG_IGN),
-                    os.setpriority(os.PRIO_PROCESS, 0, -5)  # Higher priority
-                ),
+                preexec_fn=self._setup_ffmpeg_preexec,
                 env=env
             )
             
