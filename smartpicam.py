@@ -43,6 +43,7 @@ class SmartPiCam:
         self.display_config: DisplayConfig = None
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.running = False
+        self.cursor_hidden = False
         self.setup_logging()
         
     def setup_logging(self):
@@ -53,6 +54,49 @@ class SmartPiCam:
         )
         self.logger = logging.getLogger("smartpicam")
         self.logger.info("SmartPiCam v2.0 - FFmpeg Grid Display for Pi OS Lite")
+        
+    def _hide_cursor(self):
+        """Hide the console cursor to prevent flickering"""
+        try:
+            # Hide cursor using escape sequence
+            sys.stdout.write('\033[?25l')
+            sys.stdout.flush()
+            
+            # Also try to hide cursor on all consoles
+            subprocess.run(['sudo', 'sh', '-c', 'echo 0 > /sys/class/graphics/fbcon/cursor_blink'], 
+                         capture_output=True, timeout=5)
+            
+            # Set console to not show cursor
+            subprocess.run(['setterm', '-cursor', 'off'], 
+                         capture_output=True, timeout=5)
+            
+            self.cursor_hidden = True
+            self.logger.info("Console cursor hidden")
+            
+        except Exception as e:
+            self.logger.warning(f"Could not hide cursor: {e}")
+    
+    def _show_cursor(self):
+        """Show the console cursor again"""
+        try:
+            if self.cursor_hidden:
+                # Show cursor using escape sequence
+                sys.stdout.write('\033[?25h')
+                sys.stdout.flush()
+                
+                # Restore cursor on consoles
+                subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /sys/class/graphics/fbcon/cursor_blink'], 
+                             capture_output=True, timeout=5)
+                
+                # Set console to show cursor
+                subprocess.run(['setterm', '-cursor', 'on'], 
+                             capture_output=True, timeout=5)
+                
+                self.cursor_hidden = False
+                self.logger.info("Console cursor restored")
+                
+        except Exception as e:
+            self.logger.warning(f"Could not restore cursor: {e}")
         
     def load_config(self) -> bool:
         """Load configuration from JSON file"""
@@ -174,6 +218,9 @@ class SmartPiCam:
             self.logger.warning("Display already running")
             return True
         
+        # Hide cursor before starting display
+        self._hide_cursor()
+        
         # Test streams first
         if not self._test_camera_streams():
             self.logger.error("Camera stream tests failed - not starting display")
@@ -236,6 +283,9 @@ class SmartPiCam:
             finally:
                 self.ffmpeg_process = None
                 self.logger.info("FFmpeg display stopped")
+        
+        # Restore cursor when stopping
+        self._show_cursor()
                 
     def is_healthy(self) -> bool:
         """Check if display is running properly"""
