@@ -16,7 +16,7 @@
     "preset": "ultrafast",
     "skip_failed_cameras": false,
     "show_placeholders": true,
-    "placeholder_image": "assets/camera_offline.png",
+    "placeholder_image": "feed-unavailable.png",
     "placeholder_text_color": "white",
     "placeholder_bg_color": "darkgray"
   },
