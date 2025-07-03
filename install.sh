@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # SmartPiCam Installation Script
-# Clean installation for Raspberry Pi
+# Works with both Pi OS Lite and Pi OS Desktop
 
 set -e
 
@@ -11,6 +11,15 @@ echo "=== SmartPiCam Installation ==="
 INSTALL_DIR="$HOME/smartpicam"
 SERVICE_NAME="smartpicam.service"
 
+# Detect Pi OS type
+if [ -f /usr/bin/startx ]; then
+    OS_TYPE="desktop"
+    echo "Detected: Pi OS Desktop"
+else
+    OS_TYPE="lite"
+    echo "Detected: Pi OS Lite (headless)"
+fi
+
 # 1. Update system
 echo "1. Updating system packages..."
 sudo apt update
@@ -18,15 +27,25 @@ sudo apt upgrade -y
 
 # 2. Install required packages
 echo "2. Installing required packages..."
-sudo apt install -y \
-    python3 \
-    python3-pip \
-    vlc-bin \
-    vlc-plugin-base \
-    git \
-    systemd \
-    x11-xserver-utils \
-    xvfb
+if [ "$OS_TYPE" = "desktop" ]; then
+    sudo apt install -y \
+        python3 \
+        python3-pip \
+        vlc-bin \
+        vlc-plugin-base \
+        git \
+        systemd \
+        x11-xserver-utils
+else
+    # Pi OS Lite - minimal packages for framebuffer
+    sudo apt install -y \
+        python3 \
+        python3-pip \
+        vlc-bin \
+        vlc-plugin-base \
+        git \
+        systemd
+fi
 
 # 3. Clone or update repository
 echo "3. Setting up SmartPiCam..."
@@ -45,75 +64,30 @@ echo "4. Setting up permissions..."
 # Add user to video group for hardware access
 sudo usermod -a -G video $USER
 
-# Set up udev rules for graphics access
+# Set up udev rules for graphics/framebuffer access
 echo 'SUBSYSTEM=="graphics", GROUP="video", MODE="0660"' | sudo tee /etc/udev/rules.d/99-graphics.rules > /dev/null
+echo 'KERNEL=="fb*", GROUP="video", MODE="0660"' | sudo tee -a /etc/udev/rules.d/99-graphics.rules > /dev/null
 
-# 5. Create a startup script that handles display detection
-echo "5. Creating startup script..."
-tee "$INSTALL_DIR/start_smartpicam.sh" > /dev/null << 'EOF'
-#!/bin/bash
-
-# SmartPiCam startup script with display detection
-
-echo "$(date): Starting SmartPiCam with display detection..."
-
-# Wait for desktop session to be available
-for i in {1..30}; do
-    if DISPLAY=:0 xdpyinfo >/dev/null 2>&1; then
-        echo "$(date): Display :0 is available"
-        break
-    elif DISPLAY=:1 xdpyinfo >/dev/null 2>&1; then
-        echo "$(date): Display :1 is available, using that"
-        export DISPLAY=:1
-        break
-    else
-        echo "$(date): Waiting for display... attempt $i/30"
-        sleep 2
-    fi
-done
-
-# Check if display is available
-if ! xdpyinfo >/dev/null 2>&1; then
-    echo "$(date): No display available, starting virtual display"
-    # Start virtual display as fallback
-    Xvfb :99 -screen 0 1920x1080x24 &
-    export DISPLAY=:99
-    sleep 2
-fi
-
-# Set up X11 permissions
-xhost +local: 2>/dev/null || true
-
-# Set up environment
-export XAUTHORITY=/home/pi/.Xauthority
-
-echo "$(date): Using DISPLAY=$DISPLAY"
-echo "$(date): Starting SmartPiCam..."
-
-# Start SmartPiCam
-cd /home/pi/smartpicam
-exec python3 smartpicam.py
-EOF
-
-chmod +x "$INSTALL_DIR/start_smartpicam.sh"
-
-# 6. Create systemd service with better display handling
-echo "6. Creating systemd service..."
-sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null << EOF
+# 5. Create systemd service based on OS type
+echo "5. Creating systemd service for $OS_TYPE..."
+if [ "$OS_TYPE" = "desktop" ]; then
+    # Desktop version
+    sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null << EOF
 [Unit]
 Description=SmartPiCam - Modern RTSP Camera Display System
 After=graphical-session.target
 Wants=graphical-session.target
-StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=$USER
 Group=video
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/$USER/.Xauthority
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 WorkingDirectory=$INSTALL_DIR
-ExecStartPre=/bin/sleep 20
-ExecStart=$INSTALL_DIR/start_smartpicam.sh
+ExecStartPre=/bin/sleep 15
+ExecStart=/usr/bin/python3 smartpicam.py
 Restart=always
 RestartSec=30
 StandardOutput=journal
@@ -122,12 +96,36 @@ StandardError=journal
 [Install]
 WantedBy=graphical.target
 EOF
+else
+    # Lite version - no X11 dependencies
+    sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null << EOF
+[Unit]
+Description=SmartPiCam - Modern RTSP Camera Display System
+After=multi-user.target
 
-# 7. Set up VLC configuration
-echo "7. Configuring VLC..."
+[Service]
+Type=simple
+User=$USER
+Group=video
+WorkingDirectory=$INSTALL_DIR
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/python3 smartpicam.py
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+fi
+
+# 6. Set up VLC configuration
+echo "6. Configuring VLC..."
 mkdir -p $HOME/.config/vlc
-tee $HOME/.config/vlc/vlcrc > /dev/null << 'EOF'
-# VLC preferences for camera display
+if [ "$OS_TYPE" = "desktop" ]; then
+    tee $HOME/.config/vlc/vlcrc > /dev/null << 'EOF'
+# VLC preferences for desktop display
 [core]
 intf=dummy
 audio=0
@@ -138,29 +136,60 @@ dummy-quiet=1
 [x11]
 x11-display=:0
 EOF
+else
+    tee $HOME/.config/vlc/vlcrc > /dev/null << 'EOF'
+# VLC preferences for framebuffer display
+[core]
+intf=dummy
+audio=0
 
-# 8. Create config directory if it doesn't exist
-mkdir -p "$INSTALL_DIR/config"
+[dummy]
+dummy-quiet=1
 
-# 9. Ensure desktop auto-login is enabled (for Pi 5)
-echo "8. Checking desktop auto-login..."
-if command -v raspi-config >/dev/null 2>&1; then
-    echo "Enabling auto-login to desktop (required for display access)..."
-    sudo raspi-config nonint do_boot_behaviour B4 2>/dev/null || true
+[fb]
+fbdev=/dev/fb0
+EOF
 fi
 
-# 10. Reload systemd and enable service
-echo "9. Setting up service..."
+# 7. Create config directory if it doesn't exist
+mkdir -p "$INSTALL_DIR/config"
+
+# 8. Set framebuffer resolution for Pi OS Lite
+if [ "$OS_TYPE" = "lite" ]; then
+    echo "7. Configuring framebuffer for optimal display..."
+    # Ensure framebuffer is configured for 1920x1080
+    if ! grep -q "framebuffer_width=1920" /boot/firmware/config.txt 2>/dev/null; then
+        echo "Adding framebuffer configuration to config.txt..."
+        echo "" | sudo tee -a /boot/firmware/config.txt
+        echo "# SmartPiCam framebuffer configuration" | sudo tee -a /boot/firmware/config.txt
+        echo "framebuffer_width=1920" | sudo tee -a /boot/firmware/config.txt
+        echo "framebuffer_height=1080" | sudo tee -a /boot/firmware/config.txt
+        echo "framebuffer_depth=32" | sudo tee -a /boot/firmware/config.txt
+        REBOOT_REQUIRED=true
+    fi
+fi
+
+# 9. Reload systemd and enable service
+echo "8. Setting up service..."
 sudo systemctl daemon-reload
 sudo systemctl enable $SERVICE_NAME
 
 echo ""
 echo "=== Installation Complete ==="
 echo ""
-echo "IMPORTANT NOTES:"
-echo "- Make sure your Pi is set to boot to desktop (not CLI)"
-echo "- Cameras will display on the Pi's physical monitor"
-echo "- If no physical display, a virtual display will be created"
+if [ "$OS_TYPE" = "lite" ]; then
+    echo "Pi OS Lite Configuration:"
+    echo "- Cameras will display directly on framebuffer (/dev/fb0)"
+    echo "- No X11 or desktop environment required"
+    echo "- Make sure HDMI monitor is connected"
+    if [ "$REBOOT_REQUIRED" = "true" ]; then
+        echo "- REBOOT REQUIRED for framebuffer changes"
+    fi
+else
+    echo "Pi OS Desktop Configuration:"
+    echo "- Cameras will display in X11 windows"
+    echo "- Desktop environment required"
+fi
 echo ""
 echo "Configuration file: $INSTALL_DIR/config/smartpicam.json"
 echo ""
@@ -171,8 +200,10 @@ echo "To check logs:"
 echo "  sudo journalctl -u $SERVICE_NAME -f"
 echo ""
 echo "To test manually:"
-echo "  cd $INSTALL_DIR && ./start_smartpicam.sh"
+echo "  cd $INSTALL_DIR && python3 smartpicam.py"
 echo ""
-echo "RECOMMENDED: Reboot the Pi after installation:"
-echo "  sudo reboot"
+if [ "$REBOOT_REQUIRED" = "true" ]; then
+    echo "IMPORTANT: Reboot required for framebuffer configuration:"
+    echo "  sudo reboot"
+fi
 echo ""
