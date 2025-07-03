@@ -14,7 +14,11 @@
     "buffer_size": "32k",
     "thread_count": 1,
     "preset": "ultrafast",
-    "skip_failed_cameras": true
+    "skip_failed_cameras": false,
+    "show_placeholders": true,
+    "placeholder_image": "assets/camera_offline.png",
+    "placeholder_text_color": "white",
+    "placeholder_bg_color": "darkgray"
   },
   "cameras": [
     {
