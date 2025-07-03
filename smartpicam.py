@@ -85,22 +85,17 @@ class SmartPiCam:
             return False
     
     def _build_ffmpeg_grid_command(self) -> List[str]:
-        """Build FFmpeg command for grid layout using complex filters"""
+        """Build FFmpeg command for grid layout using only basic, compatible options"""
         if not self.cameras:
             return []
         
-        # Base command with compatible options for Pi FFmpeg
-        cmd = ["ffmpeg", "-y", "-loglevel", "warning"]
+        # Basic command with minimal options for maximum compatibility
+        cmd = ["ffmpeg", "-y"]
         
-        # Add input streams with Pi-compatible options
+        # Add input streams with only basic options
         for i, camera in enumerate(self.cameras):
             cmd.extend([
-                "-i", camera.url,
-                "-reconnect", "1",
-                "-reconnect_streamed", "1", 
-                "-reconnect_delay_max", "2",
-                "-rtsp_transport", "tcp",
-                "-timeout", "5000000"  # Use timeout instead of stimeout
+                "-i", camera.url
             ])
         
         # Build filter graph for custom grid layout
@@ -108,12 +103,12 @@ class SmartPiCam:
         
         # Scale each input to the desired size and add labels
         for i, camera in enumerate(self.cameras):
-            # Add format conversion and scaling
-            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height},format=yuv420p[v{i}]"
+            # Simple scaling without format conversion
+            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
             filter_complex.append(scale_filter)
         
-        # Create background
-        background = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}:rate=25:duration=3600[bg]"
+        # Create black background
+        background = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}[bg]"
         filter_complex.append(background)
         
         # Overlay each camera at its position
@@ -132,8 +127,7 @@ class SmartPiCam:
         
         cmd.extend([
             "-filter_complex", filter_string,
-            "-f", "fbdev", "/dev/fb0",
-            "-r", "25"  # Frame rate
+            "-f", "fbdev", "/dev/fb0"
         ])
         
         return cmd
@@ -148,8 +142,6 @@ class SmartPiCam:
             test_cmd = [
                 "ffmpeg", "-y",
                 "-i", camera.url,
-                "-rtsp_transport", "tcp",
-                "-timeout", "5000000",
                 "-t", "1",  # Test for 1 second
                 "-f", "null", "-"
             ]
@@ -166,15 +158,14 @@ class SmartPiCam:
                     self.logger.info(f"✓ {camera.name} stream is accessible")
                 else:
                     self.logger.warning(f"✗ {camera.name} stream test failed: {result.stderr}")
-                    # Don't fail completely - maybe stream is slow to start
-                    self.logger.info(f"Continuing despite test failure for {camera.name}")
+                    # Continue anyway - let FFmpeg handle it
                     
             except subprocess.TimeoutExpired:
                 self.logger.warning(f"✗ {camera.name} stream test timed out - continuing anyway")
             except Exception as e:
                 self.logger.warning(f"✗ {camera.name} stream test error: {e} - continuing anyway")
                 
-        return True  # Always continue - let FFmpeg handle connection issues
+        return True  # Always continue
     
     def start_display(self) -> bool:
         """Start the FFmpeg grid display"""
