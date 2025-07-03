@@ -43,9 +43,29 @@ class CameraStream:
         self.restart_count = 0
         self.logger = logging.getLogger(f"stream.{camera.name}")
         
+    def _detect_display_mode(self) -> str:
+        """Detect if we're running on Pi OS Lite (framebuffer) or Desktop (X11)"""
+        # Check if X11 is available
+        try:
+            result = subprocess.run(['xdpyinfo'], capture_output=True, timeout=2, 
+                                  env={'DISPLAY': ':0'})
+            if result.returncode == 0:
+                return "x11"
+        except:
+            pass
+            
+        # Check if we're on a tty (console)
+        if os.path.exists('/dev/fb0'):
+            return "framebuffer"
+            
+        return "framebuffer"  # Default for Pi OS Lite
+        
     def _build_vlc_command(self) -> List[str]:
-        """Build VLC command with improved display compatibility"""
-        cmd = [
+        """Build VLC command based on display environment"""
+        display_mode = self._detect_display_mode()
+        self.logger.info(f"Using display mode: {display_mode}")
+        
+        base_cmd = [
             "cvlc",  # VLC without interface
             "--intf", "dummy",  # No interface
             "--no-audio",  # Disable audio completely
@@ -58,27 +78,38 @@ class CameraStream:
             "--no-video-title-show",
             "--no-snapshot-preview",
             "--verbose", "0",  # Reduced verbosity
-            # Force specific display output - always use the Pi's physical display
-            "--vout", "xcb_x11",  # Use X11 output
-            "--x11-display", ":0",  # Force display :0
-            # Positioning and sizing
-            "--video-x", str(self.camera.x),
-            "--video-y", str(self.camera.y),
-            "--width", str(self.camera.width),
-            "--height", str(self.camera.height),
-            "--no-video-deco",  # No window decorations
-            "--no-embedded-video",
-            "--video-on-top",  # Keep video windows on top
-            "--no-video-title",  # No title bar
-            "--loop",  # Loop on connection loss
             # Hardware acceleration fallback
             "--avcodec-hw", "none",  # Disable hardware decoding if problematic
-            # Window management
-            "--qt-start-minimized",
-            "--no-qt-privacy-ask",
-            self.camera.url
+            "--loop",  # Loop on connection loss
         ]
-        return cmd
+        
+        if display_mode == "x11":
+            # X11 mode (Pi OS Desktop)
+            base_cmd.extend([
+                "--vout", "xcb_x11",
+                "--x11-display", ":0",
+                "--video-x", str(self.camera.x),
+                "--video-y", str(self.camera.y),
+                "--width", str(self.camera.width),
+                "--height", str(self.camera.height),
+                "--no-video-deco",
+                "--no-embedded-video",
+                "--video-on-top",
+                "--no-video-title",
+                "--qt-start-minimized",
+                "--no-qt-privacy-ask",
+            ])
+        else:
+            # Framebuffer mode (Pi OS Lite)
+            base_cmd.extend([
+                "--vout", "fb",  # Use framebuffer
+                "--fbdev", "/dev/fb0",  # Framebuffer device
+                "--no-video-deco",
+                "--fullscreen",  # Important for framebuffer
+            ])
+        
+        base_cmd.append(self.camera.url)
+        return base_cmd
 
     def start(self) -> bool:
         """Start the camera stream"""
@@ -91,10 +122,15 @@ class CameraStream:
         try:
             cmd = self._build_vlc_command()
             
-            # Force environment to use physical display regardless of SSH session
+            # Set up environment
             env = os.environ.copy()
-            env['DISPLAY'] = ':0'  # Always use the Pi's physical display
-            env['XAUTHORITY'] = '/home/pi/.Xauthority'  # Use pi user's X authority
+            if self._detect_display_mode() == "framebuffer":
+                # For framebuffer mode, don't set DISPLAY
+                env.pop('DISPLAY', None)
+            else:
+                # For X11 mode
+                env['DISPLAY'] = ':0'
+                env['XAUTHORITY'] = '/home/pi/.Xauthority'
             
             self.process = subprocess.Popen(
                 cmd,
@@ -155,23 +191,6 @@ class SmartPiCam:
         self.streams: List[CameraStream] = []
         self.running = False
         self.setup_logging()
-        # Force display environment setup
-        self.setup_display_environment()
-        
-    def setup_display_environment(self):
-        """Ensure we're using the correct display regardless of how the script is run"""
-        # Always force DISPLAY to :0 (Pi's physical display)
-        os.environ['DISPLAY'] = ':0'
-        os.environ['XAUTHORITY'] = '/home/pi/.Xauthority'
-        
-        # Try to allow connections to X server
-        try:
-            subprocess.run(['xhost', '+local:'], 
-                         capture_output=True, 
-                         timeout=5,
-                         env={'DISPLAY': ':0', 'XAUTHORITY': '/home/pi/.Xauthority'})
-        except:
-            pass  # Ignore if xhost fails
         
     def setup_logging(self):
         """Configure logging"""
@@ -180,7 +199,12 @@ class SmartPiCam:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam")
-        self.logger.info("SmartPiCam will display on physical monitor (DISPLAY=:0)")
+        
+        # Detect environment
+        if os.path.exists('/usr/bin/startx'):
+            self.logger.info("Detected Pi OS Desktop environment")
+        else:
+            self.logger.info("Detected Pi OS Lite environment - using framebuffer")
         
     def load_config(self) -> bool:
         """Load configuration from JSON file"""
