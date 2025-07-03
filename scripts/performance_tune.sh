@@ -12,6 +12,17 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Get the actual user who ran sudo
+ACTUAL_USER=${SUDO_USER:-$(whoami)}
+USER_HOME=$(eval echo ~$ACTUAL_USER)
+
+echo "📋 System Information:"
+echo "  Model: $(cat /proc/device-tree/model 2>/dev/null || echo 'Unknown')"
+echo "  Memory: $(free -h | grep 'Mem:' | awk '{print $2}')"
+echo "  CPU Cores: $(nproc)"
+echo "  SmartPiCam Directory: $USER_HOME/smartpicam"
+echo ""
+
 # Function to backup config files
 backup_config() {
     local file=$1
@@ -20,12 +31,6 @@ backup_config() {
         echo "✓ Backed up $file"
     fi
 }
-
-echo "📋 System Information:"
-echo "  Model: $(cat /proc/device-tree/model 2>/dev/null || echo 'Unknown')"
-echo "  Memory: $(free -h | grep 'Mem:' | awk '{print $2}')"
-echo "  CPU Cores: $(nproc)"
-echo ""
 
 # 1. Configure boot settings for optimal performance
 echo "⚙️  Configuring boot settings..."
@@ -84,7 +89,7 @@ fi
 echo "⚙️  Configuring systemd optimizations..."
 
 # Create optimized smartpicam service
-cat > /etc/systemd/system/smartpicam-optimized.service << 'EOF'
+cat > /etc/systemd/system/smartpicam-optimized.service << EOF
 [Unit]
 Description=SmartPiCam Optimized Multi-Camera Display
 After=network-online.target
@@ -92,10 +97,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
+User=$ACTUAL_USER
 Group=video
-ExecStart=/usr/bin/python3 /opt/smartpicam/smartpicam_optimized.py
-WorkingDirectory=/opt/smartpicam
+ExecStart=/usr/bin/python3 $USER_HOME/smartpicam/smartpicam_optimized.py
+WorkingDirectory=$USER_HOME/smartpicam
 Restart=always
 RestartSec=10
 
@@ -221,8 +226,8 @@ KERNEL=="fb*", GROUP="video", MODE="0664"
 SUBSYSTEM=="graphics", GROUP="video", MODE="0664"
 EOF
 
-# Add pi user to video group
-usermod -a -G video pi
+# Add user to video group
+usermod -a -G video $ACTUAL_USER
 echo "  ✓ Device permissions configured"
 
 # 8. Configure systemd journal limits
@@ -242,7 +247,7 @@ echo "  ✓ Journal logging optimized"
 # 9. Create monitoring script
 echo "⚙️  Creating monitoring script..."
 
-cat > /opt/smartpicam/monitor_performance.sh << 'EOF'
+cat > $USER_HOME/smartpicam/monitor_performance.sh << 'EOF'
 #!/bin/bash
 
 echo "📊 SmartPiCam Performance Monitor"
@@ -299,13 +304,14 @@ systemctl is-active smartpicam-optimized > /dev/null && echo "  SmartPiCam: ✅ 
 echo ""
 EOF
 
-chmod +x /opt/smartpicam/monitor_performance.sh
+chmod +x $USER_HOME/smartpicam/monitor_performance.sh
+chown $ACTUAL_USER:$ACTUAL_USER $USER_HOME/smartpicam/monitor_performance.sh
 echo "  ✓ Performance monitoring script created"
 
 # 10. Create optimization verification script
 echo "⚙️  Creating verification script..."
 
-cat > /opt/smartpicam/verify_optimizations.sh << 'EOF'
+cat > $USER_HOME/smartpicam/verify_optimizations.sh << 'EOF'
 #!/bin/bash
 
 echo "🔍 SmartPiCam Optimization Verification"
@@ -353,17 +359,18 @@ echo ""
 
 # Check video group membership
 echo "👥 User Permissions:"
-if groups pi | grep -q video; then
-    echo "  ✅ User 'pi' is in video group"
+if groups $USER | grep -q video; then
+    echo "  ✅ User '$USER' is in video group"
 else
-    echo "  ❌ User 'pi' is NOT in video group"
+    echo "  ❌ User '$USER' is NOT in video group"
 fi
 echo ""
 
 echo "✅ Verification complete"
 EOF
 
-chmod +x /opt/smartpicam/verify_optimizations.sh
+chmod +x $USER_HOME/smartpicam/verify_optimizations.sh
+chown $ACTUAL_USER:$ACTUAL_USER $USER_HOME/smartpicam/verify_optimizations.sh
 echo "  ✓ Verification script created"
 
 # Apply sysctl settings immediately
@@ -388,9 +395,9 @@ echo "  ✅ Logging optimized"
 echo ""
 echo "📝 Next Steps:"
 echo "  1. Reboot system: sudo reboot"
-echo "  2. After reboot, verify: /opt/smartpicam/verify_optimizations.sh"
-echo "  3. Monitor performance: /opt/smartpicam/monitor_performance.sh"
-echo "  4. Update SmartPiCam with optimized version"
+echo "  2. After reboot, verify: $USER_HOME/smartpicam/verify_optimizations.sh"
+echo "  3. Monitor performance: $USER_HOME/smartpicam/monitor_performance.sh"
+echo "  4. Test optimized version: cd $USER_HOME/smartpicam && python3 smartpicam_optimized.py"
 echo ""
 echo "⚠️  Important Notes:"
 echo "  • A reboot is required for all changes to take effect"
