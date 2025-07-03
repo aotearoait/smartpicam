@@ -12,8 +12,8 @@
   },
   "cameras": [
     {
-      "name": "Living_Area",
-      "url": "rtsp://admin:Seven0f9!@192.168.1.101:554/h264Preview_01_sub",
+      "name": "Camera1",
+      "url": "rtsp://username:password@192.168.1.100:554/stream",
       "window_id": 0,
       "x": 0,
       "y": 0,
@@ -22,8 +22,8 @@
       "enabled": true
     },
     {
-      "name": "Garage",
-      "url": "rtsp://192.168.1.56:7447/wmnkT750iVQsTaR6",
+      "name": "Camera2",
+      "url": "rtsp://192.168.1.101:554/stream",
       "window_id": 1,
       "x": 1280,
       "y": 0,
@@ -32,8 +32,8 @@
       "enabled": true
     },
     {
-      "name": "Entrance",
-      "url": "rtsp://192.168.1.56:7447/czdN1E4TJo0PWnT1",
+      "name": "Camera3",
+      "url": "rtsp://192.168.1.102:554/stream",
       "window_id": 2,
       "x": 1920,
       "y": 0,
@@ -42,8 +42,8 @@
       "enabled": true
     },
     {
-      "name": "Driveway",
-      "url": "rtsp://192.168.1.56:7447/IluvbZ3Dr7HeuZl5",
+      "name": "Camera4",
+      "url": "rtsp://192.168.1.103:554/stream",
       "window_id": 3,
       "x": 1280,
       "y": 360,
@@ -52,8 +52,8 @@
       "enabled": true
     },
     {
-      "name": "Aria",
-      "url": "rtsp://admin:937JhR2021!@192.168.1.208:554/h264Preview_01_sub",
+      "name": "Camera5",
+      "url": "rtsp://192.168.1.104:554/stream",
       "window_id": 4,
       "x": 1920,
       "y": 360,
@@ -62,8 +62,8 @@
       "enabled": true
     },
     {
-      "name": "West_lower_left",
-      "url": "rtsp://camera6_url_here",
+      "name": "Camera6",
+      "url": "rtsp://192.168.1.105:554/stream",
       "window_id": 5,
       "x": 0,
       "y": 720,
@@ -72,8 +72,8 @@
       "enabled": false
     },
     {
-      "name": "Vestibule_lower_center",
-      "url": "rtsp://camera7_url_here",
+      "name": "Camera7",
+      "url": "rtsp://192.168.1.106:554/stream",
       "window_id": 6,
       "x": 640,
       "y": 720,
@@ -83,7 +83,7 @@
     },
     {
       "name": "Camera8",
-      "url": "rtsp://camera8_url_here",
+      "url": "rtsp://192.168.1.107:554/stream",
       "window_id": 7,
       "x": 0,
       "y": 1080,
@@ -93,7 +93,7 @@
     },
     {
       "name": "Camera9",
-      "url": "rtsp://camera9_url_here",
+      "url": "rtsp://192.168.1.108:554/stream",
       "window_id": 8,
       "x": 640,
       "y": 1080,
@@ -102,14 +102,14 @@
       "enabled": false
     },
     {
-      "name": "Timaru",
-      "url": "rtsp://121.75.89.44:554/s1",
+      "name": "Camera10",
+      "url": "rtsp://192.168.1.109:554/stream",
       "window_id": 9,
       "x": 1280,
       "y": 720,
       "width": 1280,
       "height": 720,
-      "enabled": true
+      "enabled": false
     }
   ]
 }
