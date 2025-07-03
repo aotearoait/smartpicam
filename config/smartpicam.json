@@ -2,8 +2,8 @@
   "display": {
     "screen_width": 1920,
     "screen_height": 1080,
-    "grid_cols": 2,
-    "grid_rows": 2,
+    "grid_cols": 3,
+    "grid_rows": 3,
     "enable_rotation": false,
     "rotation_interval": 30,
     "network_timeout": 30,
@@ -12,43 +12,63 @@
   },
   "cameras": [
     {
-      "name": "camera1",
-      "url": "rtsp://admin:password@192.168.1.100:554/stream1",
+      "name": "Living_Area",
+      "url": "rtsp://admin:Seven0f9!@192.168.1.101:554/h264Preview_01_sub",
       "window_id": 0,
       "x": 0,
       "y": 0,
-      "width": 960,
-      "height": 540,
-      "enabled": false
+      "width": 1280,
+      "height": 720,
+      "enabled": true
     },
     {
-      "name": "camera2", 
-      "url": "rtsp://admin:password@192.168.1.101:554/stream1",
+      "name": "Garage",
+      "url": "rtsp://192.168.1.56:7447/wmnkT750iVQsTaR6",
       "window_id": 1,
-      "x": 960,
+      "x": 1280,
       "y": 0,
-      "width": 960,
-      "height": 540,
-      "enabled": false
+      "width": 640,
+      "height": 360,
+      "enabled": true
     },
     {
-      "name": "camera3",
-      "url": "rtsp://admin:password@192.168.1.102:554/stream1", 
+      "name": "South_mid_right",
+      "url": "rtsp://192.168.1.56:7447/czdN1E4TJo0PWnT1",
       "window_id": 2,
+      "x": 1280,
+      "y": 360,
+      "width": 640,
+      "height": 360,
+      "enabled": true
+    },
+    {
+      "name": "West_lower_left",
+      "url": "rtsp://camera4_url_here",
+      "window_id": 3,
       "x": 0,
-      "y": 540,
-      "width": 960,
-      "height": 540,
+      "y": 720,
+      "width": 640,
+      "height": 360,
       "enabled": false
     },
     {
-      "name": "camera4",
-      "url": "rtsp://admin:password@192.168.1.103:554/stream1",
-      "window_id": 3,
-      "x": 960,
-      "y": 540,
-      "width": 960,
-      "height": 540,
+      "name": "Vestibule_lower_center",
+      "url": "rtsp://camera5_url_here",
+      "window_id": 4,
+      "x": 640,
+      "y": 720,
+      "width": 640,
+      "height": 360,
+      "enabled": false
+    },
+    {
+      "name": "SW_lower_right",
+      "url": "rtsp://camera6_url_here",
+      "window_id": 5,
+      "x": 1280,
+      "y": 720,
+      "width": 640,
+      "height": 360,
       "enabled": false
     }
   ]
