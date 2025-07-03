@@ -74,28 +74,23 @@ class StreamManager:
     def _build_vlc_command(self) -> List[str]:
         """Build VLC command with Pi 5 optimized settings"""
         cmd = [
+            "sudo", "-u", "pi",  # Run as pi user to avoid root restrictions
+            "env", "DISPLAY=:0", "XDG_RUNTIME_DIR=/run/user/1000",  # Set environment
             "cvlc",  # VLC without interface
             "--intf", "dummy",  # No interface
             "--no-audio",  # Disable audio for camera feeds
             "--network-caching", str(self.display_config.network_timeout * 1000),
             "--rtsp-tcp",  # Force TCP for RTSP (more reliable)
-            "--live-caching", "100",  # Low latency caching
+            "--live-caching", "1000",  # Low latency caching
             "--clock-jitter", "0",
             "--clock-synchro", "0",
             "--no-osd",  # No on-screen display
             "--no-video-title-show",
             "--no-snapshot-preview",
             "--verbose", "1",
-            "--vout", "drm",  # Use DRM video output for Pi 5
-            "--drm-vout-display", ":0",
-            "--video-x", str(self.camera.x),
-            "--video-y", str(self.camera.y),
-            "--width", str(self.camera.width),
-            "--height", str(self.camera.height),
-            "--zoom", "1.0",
-            "--aspect-ratio", "16:9",
+            "--fullscreen",  # Use fullscreen for simplicity
             "--no-video-deco",  # No window decorations
-            "--no-embedded-video",
+            "--loop",  # Loop on connection loss
             self.camera.url
         ]
         return cmd
@@ -122,7 +117,7 @@ class StreamManager:
             )
             
             # Give VLC time to initialize
-            time.sleep(2)
+            time.sleep(3)
             
             # Check if process started successfully
             if self.process.poll() is None:
