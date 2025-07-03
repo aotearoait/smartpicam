@@ -25,7 +25,7 @@ echo "1. Updating system packages..."
 sudo apt update
 sudo apt upgrade -y
 
-# 2. Install required packages
+# 2. Install required packages including FFmpeg
 echo "2. Installing required packages..."
 if [ "$OS_TYPE" = "desktop" ]; then
     sudo apt install -y \
@@ -33,16 +33,16 @@ if [ "$OS_TYPE" = "desktop" ]; then
         python3-pip \
         vlc-bin \
         vlc-plugin-base \
+        ffmpeg \
         git \
         systemd \
         x11-xserver-utils
 else
-    # Pi OS Lite - minimal packages for framebuffer
+    # Pi OS Lite - FFmpeg for grid display
     sudo apt install -y \
         python3 \
         python3-pip \
-        vlc-bin \
-        vlc-plugin-base \
+        ffmpeg \
         git \
         systemd
 fi
@@ -97,7 +97,7 @@ StandardError=journal
 WantedBy=graphical.target
 EOF
 else
-    # Lite version - no X11 dependencies
+    # Lite version - FFmpeg grid display
     sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null << EOF
 [Unit]
 Description=SmartPiCam - Modern RTSP Camera Display System
@@ -120,35 +120,13 @@ WantedBy=multi-user.target
 EOF
 fi
 
-# 6. Set up VLC configuration
-echo "6. Configuring VLC..."
-mkdir -p $HOME/.config/vlc
-if [ "$OS_TYPE" = "desktop" ]; then
-    tee $HOME/.config/vlc/vlcrc > /dev/null << 'EOF'
-# VLC preferences for desktop display
-[core]
-intf=dummy
-audio=0
-
-[dummy]
-dummy-quiet=1
-
-[x11]
-x11-display=:0
-EOF
+# 6. Test FFmpeg installation
+echo "6. Testing FFmpeg installation..."
+if command -v ffmpeg >/dev/null 2>&1; then
+    echo "FFmpeg version: $(ffmpeg -version | head -n1)"
 else
-    tee $HOME/.config/vlc/vlcrc > /dev/null << 'EOF'
-# VLC preferences for framebuffer display
-[core]
-intf=dummy
-audio=0
-
-[dummy]
-dummy-quiet=1
-
-[fb]
-fbdev=/dev/fb0
-EOF
+    echo "ERROR: FFmpeg installation failed!"
+    exit 1
 fi
 
 # 7. Create config directory if it doesn't exist
@@ -179,9 +157,9 @@ echo "=== Installation Complete ==="
 echo ""
 if [ "$OS_TYPE" = "lite" ]; then
     echo "Pi OS Lite Configuration:"
-    echo "- Cameras will display directly on framebuffer (/dev/fb0)"
-    echo "- No X11 or desktop environment required"
-    echo "- Make sure HDMI monitor is connected"
+    echo "- Uses FFmpeg for grid display on framebuffer"
+    echo "- Supports custom camera positioning and sizing"
+    echo "- Hardware accelerated where possible"
     if [ "$REBOOT_REQUIRED" = "true" ]; then
         echo "- REBOOT REQUIRED for framebuffer changes"
     fi
