@@ -40,14 +40,16 @@ class DisplayConfig:
     # New performance options
     hardware_accel: bool = True
     low_latency: bool = True
-    buffer_size: str = "64k"
-    thread_count: int = 2  # Limit threads per stream
+    buffer_size: str = "32k"
+    thread_count: int = 1  # Limit threads per stream
     preset: str = "ultrafast"  # For any encoding operations
+    skip_failed_cameras: bool = True  # Skip cameras that fail testing
 
 class OptimizedSmartPiCam:
     def __init__(self, config_path: str = "config/smartpicam.json"):
         self.config_path = config_path
         self.cameras: List[Camera] = []
+        self.working_cameras: List[Camera] = []  # Only cameras that pass testing
         self.display_config: DisplayConfig = None
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.running = False
@@ -159,7 +161,11 @@ class OptimizedSmartPiCam:
     
     def _build_optimized_ffmpeg_command(self) -> List[str]:
         """Build optimized FFmpeg command with better resource management"""
-        if not self.cameras:
+        # Use only working cameras for FFmpeg command
+        cameras_to_use = self.working_cameras if self.working_cameras else self.cameras
+        
+        if not cameras_to_use:
+            self.logger.error("No working cameras available for FFmpeg")
             return []
         
         cmd = ["ffmpeg", "-y"]
@@ -171,8 +177,8 @@ class OptimizedSmartPiCam:
             "-err_detect", "ignore_err"  # Ignore minor errors
         ])
         
-        # Add optimized input streams
-        for i, camera in enumerate(self.cameras):
+        # Add optimized input streams (only for working cameras)
+        for i, camera in enumerate(cameras_to_use):
             stream_params = self._get_optimal_stream_params(camera)
             cmd.extend(stream_params)
             cmd.extend(["-i", camera.url])
@@ -184,15 +190,15 @@ class OptimizedSmartPiCam:
         bg_filter = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}:rate=25[bg]"
         filter_parts.append(bg_filter)
         
-        # Process each camera with minimal operations
+        # Process each working camera with minimal operations
         overlay_input = "[bg]"
-        for i, camera in enumerate(self.cameras):
+        for i, camera in enumerate(cameras_to_use):
             # Direct scale to target size with efficient scaling algorithm
             scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}:flags=fast_bilinear,fps=25[v{i}]"
             filter_parts.append(scale_filter)
             
             # Chain overlays
-            if i == len(self.cameras) - 1:
+            if i == len(cameras_to_use) - 1:
                 # Last overlay with framebuffer format
                 overlay_filter = f"{overlay_input}[v{i}]overlay={camera.x}:{camera.y}:format=auto,format=rgb565le[out]"
             else:
@@ -214,49 +220,68 @@ class OptimizedSmartPiCam:
         return cmd
     
     def _test_camera_streams_parallel(self) -> bool:
-        """Test camera streams in parallel for faster startup"""
+        """Test camera streams in parallel and filter out failed ones"""
         self.logger.info("Testing camera streams in parallel...")
         
         def test_single_camera(camera):
             test_cmd = [
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-rtsp_transport", "tcp",
+                "-timeout", "10000000",  # 10 second timeout in microseconds
                 "-i", camera.url,
                 "-t", "1",
                 "-f", "null", "-"
             ]
             
             try:
-                result = subprocess.run(test_cmd, capture_output=True, timeout=10, text=True)
+                result = subprocess.run(test_cmd, capture_output=True, timeout=12, text=True)
                 if result.returncode == 0:
                     self.logger.info(f"✓ {camera.name} stream OK")
-                    return True
+                    return camera, True
                 else:
-                    self.logger.warning(f"✗ {camera.name} stream issue: {result.stderr}")
-                    return False
+                    self.logger.warning(f"✗ {camera.name} stream failed: {result.stderr}")
+                    return camera, False
             except subprocess.TimeoutExpired:
                 self.logger.warning(f"✗ {camera.name} stream timeout")
-                return False
+                return camera, False
             except Exception as e:
                 self.logger.warning(f"✗ {camera.name} stream error: {e}")
-                return False
+                return camera, False
         
         # Test all cameras in parallel
+        working_cameras = []
+        failed_cameras = []
+        
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(self.cameras), 5)) as executor:
             future_to_camera = {executor.submit(test_single_camera, camera): camera 
                                for camera in self.cameras}
             
-            working_cameras = 0
-            for future in concurrent.futures.as_completed(future_to_camera, timeout=15):
-                camera = future_to_camera[future]
+            for future in concurrent.futures.as_completed(future_to_camera, timeout=20):
                 try:
-                    if future.result():
-                        working_cameras += 1
+                    camera, success = future.result()
+                    if success:
+                        working_cameras.append(camera)
+                    else:
+                        failed_cameras.append(camera)
                 except Exception as e:
+                    camera = future_to_camera[future]
                     self.logger.warning(f"Test error for {camera.name}: {e}")
+                    failed_cameras.append(camera)
         
-        self.logger.info(f"Stream test complete: {working_cameras}/{len(self.cameras)} cameras responding")
-        return working_cameras > 0
+        # Update working cameras list
+        self.working_cameras = working_cameras
+        
+        self.logger.info(f"Stream test complete: {len(working_cameras)}/{len(self.cameras)} cameras working")
+        
+        if failed_cameras:
+            failed_names = [cam.name for cam in failed_cameras]
+            if self.display_config.skip_failed_cameras:
+                self.logger.warning(f"Skipping failed cameras: {', '.join(failed_names)}")
+            else:
+                self.logger.warning(f"Failed cameras: {', '.join(failed_names)} - will attempt anyway")
+                self.working_cameras = self.cameras  # Use all cameras anyway
+        
+        return len(working_cameras) > 0
     
     def _optimize_system_for_video(self):
         """Apply system-level optimizations for video processing"""
@@ -265,8 +290,7 @@ class OptimizedSmartPiCam:
             subprocess.run(['sudo', 'cpufreq-set', '-g', 'performance'], 
                          capture_output=True, timeout=5)
             
-            # Disable GPU memory split if needed (Pi 5 specific)
-            # Note: This requires reboot to take effect
+            # Check GPU memory
             gpu_mem_check = subprocess.run(['vcgencmd', 'get_mem', 'gpu'], 
                                          capture_output=True, text=True)
             if gpu_mem_check.returncode == 0:
@@ -294,10 +318,14 @@ class OptimizedSmartPiCam:
         # Hide cursor
         self._hide_cursor()
         
-        # Test streams in parallel
+        # Test streams in parallel and filter working ones
         if not self._test_camera_streams_parallel():
             self.logger.error("No working camera streams found")
             return False
+        
+        # Show which cameras will be displayed
+        working_names = [cam.name for cam in self.working_cameras]
+        self.logger.info(f"Starting display with cameras: {', '.join(working_names)}")
             
         cmd = self._build_optimized_ffmpeg_command()
         if not cmd:
@@ -346,14 +374,15 @@ class OptimizedSmartPiCam:
     def _log_performance_info(self):
         """Log performance and resource information"""
         self.logger.info("Performance configuration:")
-        self.logger.info(f"  Cameras: {len(self.cameras)}")
+        self.logger.info(f"  Working cameras: {len(self.working_cameras)}")
         self.logger.info(f"  Hardware accel: {self.display_config.hardware_accel}")
         self.logger.info(f"  Low latency: {self.display_config.low_latency}")
         self.logger.info(f"  Threads per stream: {self.display_config.thread_count}")
         self.logger.info(f"  Buffer size: {self.display_config.buffer_size}")
+        self.logger.info(f"  Skip failed cameras: {self.display_config.skip_failed_cameras}")
         
-        # Log camera layout
-        for camera in self.cameras:
+        # Log camera layout (only working cameras)
+        for camera in self.working_cameras:
             self.logger.info(f"  {camera.name}: {camera.width}x{camera.height} at ({camera.x},{camera.y})")
     
     def stop_display(self):
