@@ -72,9 +72,9 @@ class StreamManager:
         self.logger = logging.getLogger(f"stream.{camera.name}")
         
     def _build_vlc_command(self) -> List[str]:
-        """Build VLC command with Pi 5 optimized settings"""
+        """Build VLC command with precise windowed positioning"""
         cmd = [
-            "cvlc",  # VLC without interface - no sudo needed when service runs as pi
+            "cvlc",  # VLC without interface
             "--intf", "dummy",  # No interface
             "--no-audio",  # Disable audio for camera feeds
             "--network-caching", str(self.display_config.network_timeout * 1000),
@@ -86,8 +86,15 @@ class StreamManager:
             "--no-video-title-show",
             "--no-snapshot-preview",
             "--verbose", "1",
-            "--fullscreen",  # Use fullscreen for simplicity
+            # Use windowed mode with precise positioning instead of fullscreen
+            "--video-x", str(self.camera.x),
+            "--video-y", str(self.camera.y),
+            "--width", str(self.camera.width),
+            "--height", str(self.camera.height),
             "--no-video-deco",  # No window decorations
+            "--no-embedded-video",
+            "--video-on-top",  # Keep video windows on top
+            "--no-video-title",  # No title bar
             "--loop",  # Loop on connection loss
             self.camera.url
         ]
@@ -100,7 +107,7 @@ class StreamManager:
             return True
             
         self.state = StreamState.STARTING
-        self.logger.info(f"Starting stream for {self.camera.name}")
+        self.logger.info(f"Starting stream for {self.camera.name} at position ({self.camera.x},{self.camera.y}) size {self.camera.width}x{self.camera.height}")
         
         try:
             cmd = self._build_vlc_command()
@@ -354,8 +361,9 @@ class SmartPiCam:
             self.logger.error("No cameras configured!")
             return False
             
-        # Calculate layout
-        self._calculate_grid_layout()
+        # Calculate layout only if cameras don't have manual positioning
+        if not any(cam.x != 0 or cam.y != 0 for cam in self.cameras.values() if cam.enabled):
+            self._calculate_grid_layout()
         
         # Initialize stream managers
         for camera in self.cameras.values():
@@ -368,6 +376,8 @@ class SmartPiCam:
         for name, manager in self.stream_managers.items():
             if manager.start():
                 success_count += 1
+                # Small delay between starting streams to avoid overwhelming
+                time.sleep(1)
             else:
                 self.logger.error(f"Failed to start stream: {name}")
                 
