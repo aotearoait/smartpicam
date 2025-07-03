@@ -46,7 +46,7 @@ class DisplayConfig:
     skip_failed_cameras: bool = True  # Skip cameras that fail testing
     # Placeholder options
     show_placeholders: bool = True  # Show placeholders for failed/disabled cameras
-    placeholder_image: str = "assets/camera_offline.png"  # Path to placeholder image
+    placeholder_image: str = "feed-unavailable.png"  # Path to placeholder image (in main directory)
     placeholder_text_color: str = "white"  # Text color for camera name
     placeholder_bg_color: str = "black"  # Background color for placeholder
     # Retry options
@@ -128,6 +128,13 @@ class OptimizedSmartPiCam:
                 
             self.cameras = enabled_cameras
             self.logger.info(f"Loaded configuration with {len(self.cameras)} enabled cameras")
+            
+            # Log placeholder image path for verification
+            self.logger.info(f"Placeholder image: {self.display_config.placeholder_image}")
+            if os.path.exists(self.display_config.placeholder_image):
+                self.logger.info("✓ Placeholder image found")
+            else:
+                self.logger.warning("⚠ Placeholder image not found - will use text fallback")
             
             # Performance recommendations
             if len(self.cameras) > 6:
