@@ -1,0 +1,40 @@
+# SmartPiCam - Files to ignore in git
+
+# User configuration files (to protect your camera URLs and passwords)
+config/smartpicam.json
+config/smartpicam_optimized.json
+
+# Log files
+*.log
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.backup
+*.bak
+
+# FFmpeg output files
+output.mp4
+test_output.*
+
+# Temporary files
+temp/
+tmp/
