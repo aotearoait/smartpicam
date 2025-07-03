@@ -25,7 +25,8 @@ sudo apt install -y \
     vlc-plugin-base \
     git \
     systemd \
-    x11-xserver-utils
+    x11-xserver-utils \
+    xvfb
 
 # 3. Clone or update repository
 echo "3. Setting up SmartPiCam..."
@@ -39,36 +40,80 @@ else
     cd "$INSTALL_DIR"
 fi
 
-# 4. Set up permissions and X11 access
-echo "4. Setting up permissions and display access..."
+# 4. Set up permissions
+echo "4. Setting up permissions..."
 # Add user to video group for hardware access
 sudo usermod -a -G video $USER
 
 # Set up udev rules for graphics access
 echo 'SUBSYSTEM=="graphics", GROUP="video", MODE="0660"' | sudo tee /etc/udev/rules.d/99-graphics.rules > /dev/null
 
-# Allow local connections to X server (for SSH sessions)
-echo "xhost +local:" >> $HOME/.profile
+# 5. Create a startup script that handles display detection
+echo "5. Creating startup script..."
+tee "$INSTALL_DIR/start_smartpicam.sh" > /dev/null << 'EOF'
+#!/bin/bash
 
-# 5. Create systemd service that forces display :0
-echo "5. Creating systemd service..."
+# SmartPiCam startup script with display detection
+
+echo "$(date): Starting SmartPiCam with display detection..."
+
+# Wait for desktop session to be available
+for i in {1..30}; do
+    if DISPLAY=:0 xdpyinfo >/dev/null 2>&1; then
+        echo "$(date): Display :0 is available"
+        break
+    elif DISPLAY=:1 xdpyinfo >/dev/null 2>&1; then
+        echo "$(date): Display :1 is available, using that"
+        export DISPLAY=:1
+        break
+    else
+        echo "$(date): Waiting for display... attempt $i/30"
+        sleep 2
+    fi
+done
+
+# Check if display is available
+if ! xdpyinfo >/dev/null 2>&1; then
+    echo "$(date): No display available, starting virtual display"
+    # Start virtual display as fallback
+    Xvfb :99 -screen 0 1920x1080x24 &
+    export DISPLAY=:99
+    sleep 2
+fi
+
+# Set up X11 permissions
+xhost +local: 2>/dev/null || true
+
+# Set up environment
+export XAUTHORITY=/home/pi/.Xauthority
+
+echo "$(date): Using DISPLAY=$DISPLAY"
+echo "$(date): Starting SmartPiCam..."
+
+# Start SmartPiCam
+cd /home/pi/smartpicam
+exec python3 smartpicam.py
+EOF
+
+chmod +x "$INSTALL_DIR/start_smartpicam.sh"
+
+# 6. Create systemd service with better display handling
+echo "6. Creating systemd service..."
 sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null << EOF
 [Unit]
 Description=SmartPiCam - Modern RTSP Camera Display System
 After=graphical-session.target
 Wants=graphical-session.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=$USER
 Group=video
-Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/$USER/.Xauthority
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 WorkingDirectory=$INSTALL_DIR
-ExecStartPre=/bin/sleep 15
-ExecStartPre=/usr/bin/xhost +local:
-ExecStart=/usr/bin/python3 smartpicam.py
+ExecStartPre=/bin/sleep 20
+ExecStart=$INSTALL_DIR/start_smartpicam.sh
 Restart=always
 RestartSec=30
 StandardOutput=journal
@@ -78,8 +123,8 @@ StandardError=journal
 WantedBy=graphical.target
 EOF
 
-# 6. Set up VLC configuration
-echo "6. Configuring VLC..."
+# 7. Set up VLC configuration
+echo "7. Configuring VLC..."
 mkdir -p $HOME/.config/vlc
 tee $HOME/.config/vlc/vlcrc > /dev/null << 'EOF'
 # VLC preferences for camera display
@@ -94,19 +139,28 @@ dummy-quiet=1
 x11-display=:0
 EOF
 
-# 7. Create config directory if it doesn't exist
+# 8. Create config directory if it doesn't exist
 mkdir -p "$INSTALL_DIR/config"
 
-# 8. Reload systemd and enable service
-echo "7. Setting up service..."
+# 9. Ensure desktop auto-login is enabled (for Pi 5)
+echo "8. Checking desktop auto-login..."
+if command -v raspi-config >/dev/null 2>&1; then
+    echo "Enabling auto-login to desktop (required for display access)..."
+    sudo raspi-config nonint do_boot_behaviour B4 2>/dev/null || true
+fi
+
+# 10. Reload systemd and enable service
+echo "9. Setting up service..."
 sudo systemctl daemon-reload
 sudo systemctl enable $SERVICE_NAME
 
 echo ""
 echo "=== Installation Complete ==="
 echo ""
-echo "IMPORTANT: Cameras will ALWAYS display on the Pi's physical monitor,"
-echo "even when running commands via SSH/PuTTY."
+echo "IMPORTANT NOTES:"
+echo "- Make sure your Pi is set to boot to desktop (not CLI)"
+echo "- Cameras will display on the Pi's physical monitor"
+echo "- If no physical display, a virtual display will be created"
 echo ""
 echo "Configuration file: $INSTALL_DIR/config/smartpicam.json"
 echo ""
@@ -116,9 +170,9 @@ echo ""
 echo "To check logs:"
 echo "  sudo journalctl -u $SERVICE_NAME -f"
 echo ""
-echo "To test manually via SSH:"
-echo "  cd $INSTALL_DIR && python3 smartpicam.py"
-echo "  (cameras will appear on Pi's physical display, not in SSH terminal)"
+echo "To test manually:"
+echo "  cd $INSTALL_DIR && ./start_smartpicam.sh"
 echo ""
-echo "The service will auto-start on boot once enabled."
+echo "RECOMMENDED: Reboot the Pi after installation:"
+echo "  sudo reboot"
 echo ""
