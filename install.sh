@@ -24,7 +24,8 @@ sudo apt install -y \
     vlc-bin \
     vlc-plugin-base \
     git \
-    systemd
+    systemd \
+    x11-xserver-utils
 
 # 3. Clone or update repository
 echo "3. Setting up SmartPiCam..."
@@ -38,15 +39,18 @@ else
     cd "$INSTALL_DIR"
 fi
 
-# 4. Set up permissions
-echo "4. Setting up permissions..."
+# 4. Set up permissions and X11 access
+echo "4. Setting up permissions and display access..."
 # Add user to video group for hardware access
 sudo usermod -a -G video $USER
 
 # Set up udev rules for graphics access
 echo 'SUBSYSTEM=="graphics", GROUP="video", MODE="0660"' | sudo tee /etc/udev/rules.d/99-graphics.rules > /dev/null
 
-# 5. Create systemd service
+# Allow local connections to X server (for SSH sessions)
+echo "xhost +local:" >> $HOME/.profile
+
+# 5. Create systemd service that forces display :0
 echo "5. Creating systemd service..."
 sudo tee /etc/systemd/system/$SERVICE_NAME > /dev/null << EOF
 [Unit]
@@ -59,9 +63,11 @@ Type=simple
 User=$USER
 Group=video
 Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/$USER/.Xauthority
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 WorkingDirectory=$INSTALL_DIR
 ExecStartPre=/bin/sleep 15
+ExecStartPre=/usr/bin/xhost +local:
 ExecStart=/usr/bin/python3 smartpicam.py
 Restart=always
 RestartSec=30
@@ -83,6 +89,9 @@ audio=0
 
 [dummy]
 dummy-quiet=1
+
+[x11]
+x11-display=:0
 EOF
 
 # 7. Create config directory if it doesn't exist
@@ -96,6 +105,9 @@ sudo systemctl enable $SERVICE_NAME
 echo ""
 echo "=== Installation Complete ==="
 echo ""
+echo "IMPORTANT: Cameras will ALWAYS display on the Pi's physical monitor,"
+echo "even when running commands via SSH/PuTTY."
+echo ""
 echo "Configuration file: $INSTALL_DIR/config/smartpicam.json"
 echo ""
 echo "To start the service:"
@@ -104,8 +116,9 @@ echo ""
 echo "To check logs:"
 echo "  sudo journalctl -u $SERVICE_NAME -f"
 echo ""
-echo "To test manually:"
+echo "To test manually via SSH:"
 echo "  cd $INSTALL_DIR && python3 smartpicam.py"
+echo "  (cameras will appear on Pi's physical display, not in SSH terminal)"
 echo ""
 echo "The service will auto-start on boot once enabled."
 echo ""
