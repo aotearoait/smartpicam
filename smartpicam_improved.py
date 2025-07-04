@@ -36,7 +36,7 @@ class DisplayConfig:
     network_timeout: int = 30
     restart_retries: int = 3
     log_level: str = "INFO"
-    # New reliability features
+    # Reliability features
     show_placeholders: bool = True
     placeholder_image: str = "feed-unavailable.png"
     placeholder_text_color: str = "white"
@@ -55,6 +55,7 @@ class ImprovedSmartPiCam:
         self.running = False
         self.cursor_hidden = False
         self.camera_status_changed = threading.Event()
+        self.placeholder_available = False
         self.setup_logging()
         
     def setup_logging(self):
@@ -64,7 +65,7 @@ class ImprovedSmartPiCam:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam")
-        self.logger.info("SmartPiCam v2.1 - Improved with placeholders and auto-recovery")
+        self.logger.info("SmartPiCam v2.2 - Improved with instant placeholders and auto-recovery")
         
     def _hide_cursor(self):
         """Hide the console cursor to prevent flickering"""
@@ -120,13 +121,15 @@ class ImprovedSmartPiCam:
             self.cameras = enabled_cameras
             self.logger.info(f"Loaded configuration with {len(self.cameras)} enabled cameras")
             
-            # Log placeholder settings
+            # Check placeholder image
             if self.display_config.show_placeholders:
-                self.logger.info(f"Placeholders enabled: {self.display_config.placeholder_image}")
                 if os.path.exists(self.display_config.placeholder_image):
-                    self.logger.info("✓ Placeholder image found")
+                    self.placeholder_available = True
+                    self.logger.info(f"✓ Placeholder image found: {self.display_config.placeholder_image}")
                 else:
-                    self.logger.warning("⚠ Placeholder image not found - will use text fallback")
+                    self.placeholder_available = False
+                    self.logger.info(f"ℹ Placeholder image not found: {self.display_config.placeholder_image}")
+                    self.logger.info("Will use solid color placeholders instead")
             
             if self.display_config.enable_camera_retry:
                 self.logger.info(f"Auto-recovery enabled: checking failed cameras every {self.display_config.camera_retry_interval}s")
@@ -137,18 +140,72 @@ class ImprovedSmartPiCam:
             self.logger.error(f"Failed to load config: {e}")
             return False
     
-    def _create_placeholder_for_camera(self, camera: Camera, reason: str = "offline") -> str:
-        """Create a placeholder input for a failed camera"""
-        if self.display_config.show_placeholders:
-            placeholder_path = self.display_config.placeholder_image
-            if os.path.exists(placeholder_path):
-                return f"-loop 1 -i {placeholder_path}"
-            else:
-                # Text-based placeholder
-                return f"-f lavfi -i color=c={self.display_config.placeholder_bg_color}:s={camera.width}x{camera.height}:r=25"
+    def _create_placeholder_for_camera(self, camera: Camera, reason: str = "loading") -> str:
+        """Create a placeholder input for a camera"""
+        if self.display_config.show_placeholders and self.placeholder_available:
+            # Use actual placeholder image
+            return f"-loop 1 -i {self.display_config.placeholder_image}"
         else:
-            # Black screen
-            return f"-f lavfi -i color=c=black:s={camera.width}x{camera.height}:r=25"
+            # Use solid color placeholder
+            color = self.display_config.placeholder_bg_color
+            return f"-f lavfi -i color=c={color}:s={camera.width}x{camera.height}:r=25"
+    
+    def _show_initial_placeholders(self) -> bool:
+        """Show placeholders for all cameras immediately while testing streams"""
+        self.logger.info("Showing initial placeholders for all camera positions...")
+        
+        cmd = ["ffmpeg", "-y"]
+        
+        # Add placeholder inputs for all cameras
+        for camera in self.cameras:
+            placeholder_input = self._create_placeholder_for_camera(camera, "loading")
+            cmd.extend(placeholder_input.split())
+        
+        # Build simple filter chain - just scale and overlay
+        filter_complex = []
+        
+        # Scale each placeholder
+        for i, camera in enumerate(self.cameras):
+            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
+            filter_complex.append(scale_filter)
+        
+        # Create black background
+        background = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}[bg]"
+        filter_complex.append(background)
+        
+        # Overlay each placeholder
+        overlay_chain = "[bg]"
+        for i, camera in enumerate(self.cameras):
+            if i == len(self.cameras) - 1:
+                overlay = f"{overlay_chain}[v{i}]overlay={camera.x}:{camera.y},format=rgb565le"
+            else:
+                overlay = f"{overlay_chain}[v{i}]overlay={camera.x}:{camera.y}[tmp{i}]"
+                overlay_chain = f"[tmp{i}]"
+            filter_complex.append(overlay)
+        
+        filter_string = ";".join(filter_complex)
+        
+        cmd.extend([
+            "-filter_complex", filter_string,
+            "-f", "fbdev", "/dev/fb0",
+            "-pix_fmt", "rgb565le",
+            "-t", "3"  # Show for 3 seconds
+        ])
+        
+        try:
+            env = os.environ.copy()
+            env.pop('DISPLAY', None)
+            
+            result = subprocess.run(cmd, capture_output=True, timeout=5, env=env)
+            if result.returncode == 0:
+                self.logger.info("✓ Initial placeholders displayed")
+                return True
+            else:
+                self.logger.warning("Could not show initial placeholders")
+                return False
+        except Exception as e:
+            self.logger.warning(f"Error showing initial placeholders: {e}")
+            return False
     
     def _build_ffmpeg_grid_command(self) -> List[str]:
         """Build FFmpeg command for grid layout with placeholders for failed cameras"""
@@ -159,11 +216,9 @@ class ImprovedSmartPiCam:
         
         # Build input list with both working cameras and placeholders
         input_sources = []
-        camera_map = {}
         
         for camera in self.cameras:
             input_index = len(input_sources)
-            camera_map[input_index] = camera
             
             if camera in self.working_cameras:
                 # Working camera
@@ -178,32 +233,20 @@ class ImprovedSmartPiCam:
                 input_sources.append(("placeholder", camera))
                 self.logger.debug(f"Input {input_index}: Placeholder for {camera.name} ({reason})")
         
-        # Build filter complex - same as original
+        # Build filter complex - simple scaling only (no text rendering)
         filter_complex = []
         
         # Scale each input
         for i, (source_type, camera) in enumerate(input_sources):
-            if source_type == "camera":
-                scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
-            else:
-                # Placeholder with text overlay if using text fallback
-                if self.display_config.show_placeholders and not os.path.exists(self.display_config.placeholder_image):
-                    reason = "TIMEOUT" if camera in self.failed_cameras else "OFFLINE"
-                    text_filter = (f"[{i}:v]scale={camera.width}:{camera.height},"
-                                 f"drawtext=text='{camera.name}\\n({reason})':fontsize=24:"
-                                 f"fontcolor={self.display_config.placeholder_text_color}:"
-                                 f"x=(w-text_w)/2:y=(h-text_h)/2[v{i}]")
-                    scale_filter = text_filter
-                else:
-                    scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
-            
+            # Simple scaling for all inputs - no complex text rendering
+            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
             filter_complex.append(scale_filter)
         
         # Create black background
         background = f"color=black:{self.display_config.screen_width}x{self.display_config.screen_height}[bg]"
         filter_complex.append(background)
         
-        # Overlay each camera - same as original
+        # Overlay each camera
         overlay_chain = "[bg]"
         for i, (source_type, camera) in enumerate(input_sources):
             if i == len(input_sources) - 1:
@@ -259,7 +302,7 @@ class ImprovedSmartPiCam:
             future_to_camera = {executor.submit(test_camera, camera): camera 
                                for camera in self.cameras}
             
-            for future in concurrent.futures.as_completed(future_to_camera, timeout=20):
+            for future in concurrent.futures.as_completed(future_to_camera, timeout=30):
                 try:
                     camera, success = future.result()
                     if success:
@@ -278,10 +321,7 @@ class ImprovedSmartPiCam:
         
         if failed_cameras:
             failed_names = [cam.name for cam in failed_cameras]
-            if self.display_config.show_placeholders:
-                self.logger.info(f"Will show placeholders for: {', '.join(failed_names)}")
-            else:
-                self.logger.warning(f"Skipping failed cameras: {', '.join(failed_names)}")
+            self.logger.info(f"Will show placeholders for: {', '.join(failed_names)}")
         
         return len(self.cameras) > 0
     
@@ -321,6 +361,9 @@ class ImprovedSmartPiCam:
         
         self._hide_cursor()
         
+        # Show initial placeholders immediately
+        self._show_initial_placeholders()
+        
         # Test streams and identify working/failed cameras
         if not self._test_camera_streams_parallel():
             self.logger.error("No cameras configured")
@@ -332,7 +375,7 @@ class ImprovedSmartPiCam:
             return False
         
         self.logger.info("Starting FFmpeg grid display with placeholders...")
-        self.logger.info(f"FFmpeg command: {' '.join(cmd)}")
+        self.logger.debug(f"FFmpeg command: {' '.join(cmd)}")
         
         try:
             env = os.environ.copy()
@@ -346,7 +389,7 @@ class ImprovedSmartPiCam:
                 env=env
             )
             
-            time.sleep(5)
+            time.sleep(3)
             
             if self.ffmpeg_process.poll() is None:
                 self.logger.info("FFmpeg grid display started successfully")
@@ -471,7 +514,7 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     
     app = ImprovedSmartPiCam()
-    app.logger.info("Starting Improved SmartPiCam with auto-recovery...")
+    app.logger.info("Starting Improved SmartPiCam with instant placeholders...")
     
     success = app.run()
     sys.exit(0 if success else 1)
