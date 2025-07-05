@@ -260,7 +260,7 @@ class SmartPiCamNoReencode:
         start_time = time.time()
         
         # Check if camera uses H.264 (with caching)
-        is_h264_stream = self.is_h264(camera.rtsp_url)
+        is_h264_stream = self.is_h264(camera.url)
         mode = "COPY" if is_h264_stream else "ENCODE"
         self.camera_modes[camera.name] = mode.lower()
         
@@ -274,7 +274,7 @@ class SmartPiCamNoReencode:
                 "-timeout", "5000000",  # 5 second timeout
                 "-fflags", "nobuffer",  # Disable input buffering
                 "-flags", "low_delay",  # Low delay mode
-                "-i", camera.rtsp_url,
+                "-i", camera.url,
                 "-c", "copy",
                 "-avoid_negative_ts", "make_zero",  # Handle timestamp issues
                 "-fflags", "+genpts",  # Generate presentation timestamps
@@ -289,7 +289,7 @@ class SmartPiCamNoReencode:
                 "-timeout", "5000000",  # 5 second timeout
                 "-fflags", "nobuffer",  # Disable input buffering
                 "-flags", "low_delay",  # Low delay mode
-                "-i", camera.rtsp_url,
+                "-i", camera.url,
                 "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
                 "-x264-params", "sliced-threads=0:sync-lookahead=0",  # Zero latency encoding
                 "-g", "15",  # GOP size for low latency
