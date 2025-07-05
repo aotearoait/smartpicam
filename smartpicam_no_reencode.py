@@ -601,16 +601,17 @@ class SmartPiCamNoReencode:
                     if process:
                         self.camera_processes[camera.name] = process
                         self.working_cameras.append(camera)
+                        self.logger.info(f"✅ {camera.name} recovered and streaming on port {udp_port}")
                     else:
                         still_failed.append(camera)
                         continue
                 
                 self.failed_cameras = still_failed
-                self.camera_status_changed.set()
+                # DON'T set camera_status_changed - let cameras integrate without display restart
                 
                 recovered_names = [cam.name for cam in recovered_cameras if cam.name in self.camera_processes]
                 if recovered_names:
-                    self.logger.info(f"✅ Cameras recovered: {', '.join(recovered_names)}")
+                    self.logger.info(f"🎉 Cameras now active: {', '.join(recovered_names)} (display continues)")
 
     def stop_display(self):
         """Stop all FFmpeg processes"""
@@ -647,40 +648,43 @@ class SmartPiCamNoReencode:
         return self.ffmpeg_process is not None and self.ffmpeg_process.poll() is None
         
     def monitor_display(self):
-        """Monitor and restart display if it fails or cameras recover"""
+        """Monitor display health - only restart if display actually fails"""
         restart_count = 0
         
         while self.running:
             display_failed = not self.is_healthy()
             camera_status_changed = self.camera_status_changed.is_set()
             
-            if display_failed or camera_status_changed:
-                if camera_status_changed:
-                    self.logger.info("Camera status changed - restarting display to include recovered cameras")
-                    self.camera_status_changed.clear()
-                    restart_count = 0
-                elif display_failed:
-                    if restart_count >= self.display_config.restart_retries:
-                        self.logger.error(f"Max restart attempts ({self.display_config.restart_retries}) reached")
-                        break
-                    
-                    restart_count += 1
-                    self.logger.warning(f"Display unhealthy, restarting ({restart_count}/{self.display_config.restart_retries})")
-                    
-                    # Log any error output
-                    if self.ffmpeg_process:
-                        try:
-                            stdout, stderr = self.ffmpeg_process.communicate(timeout=1)
-                            if stderr:
-                                self.logger.error(f"FFmpeg error: {stderr.decode()}")
-                        except:
-                            pass
+            # Clear camera status change flag but DON'T restart display
+            if camera_status_changed:
+                self.logger.info("📹 Camera recovered - streams already active, display continues")
+                self.camera_status_changed.clear()
+            
+            # Only restart if display actually failed
+            if display_failed:
+                if restart_count >= self.display_config.restart_retries:
+                    self.logger.error(f"Max restart attempts ({self.display_config.restart_retries}) reached")
+                    break
+                
+                restart_count += 1
+                self.logger.warning(f"Display unhealthy, restarting ({restart_count}/{self.display_config.restart_retries})")
+                
+                # Log any error output
+                if self.ffmpeg_process:
+                    try:
+                        stdout, stderr = self.ffmpeg_process.communicate(timeout=1)
+                        if stderr:
+                            self.logger.error(f"FFmpeg error: {stderr.decode()}")
+                    except:
+                        pass
                 
                 self.stop_display()
                 time.sleep(3)
                 
                 if self.start_display():
                     restart_count = 0
+            else:
+                restart_count = 0  # Reset counter when display is healthy
                     
             time.sleep(10)
 
