@@ -35,6 +35,13 @@ class DisplayConfig:
     network_timeout: int = 30
     restart_retries: int = 3
     log_level: str = "INFO"
+    # Placeholder features from improved version
+    show_placeholders: bool = True
+    placeholder_image: str = "camera_offline.png"
+    placeholder_text_color: str = "white"
+    placeholder_bg_color: str = "darkgray"
+    camera_retry_interval: int = 30
+    enable_camera_retry: bool = True
 
 class SmartPiCamNoReencode:
     def __init__(self, config_path: str = "config/smartpicam.json"):
@@ -54,7 +61,7 @@ class SmartPiCamNoReencode:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam_no_reencode")
-        self.logger.info("SmartPiCam No Re-encode v1.0 - Ultra Low Latency Stream Processing")
+        self.logger.info("SmartPiCam No Re-encode v1.1 - Ultra Low Latency with Placeholders")
         
     def _hide_cursor(self):
         """Hide the console cursor to prevent flickering"""
@@ -104,6 +111,15 @@ class SmartPiCamNoReencode:
                 
             self.cameras = enabled_cameras
             self.logger.info(f"Loaded configuration with {len(self.cameras)} enabled cameras")
+            
+            # Check placeholder image
+            if self.display_config.show_placeholders:
+                if os.path.exists(self.display_config.placeholder_image):
+                    self.logger.info(f"✓ Placeholder image found: {self.display_config.placeholder_image}")
+                else:
+                    self.logger.info(f"ℹ Placeholder image not found: {self.display_config.placeholder_image}")
+                    self.logger.info("Will use solid color placeholders instead")
+            
             return True
             
         except Exception as e:
@@ -126,7 +142,7 @@ class SmartPiCamNoReencode:
             if result.returncode == 0:
                 codec = result.stdout.strip().lower()
                 is_h264 = codec == "h264"
-                self.logger.info(f"Stream codec detected: {codec} (H.264: {is_h264})")
+                self.logger.info(f"📹 {rtsp_url}: codec={codec} (H.264: {is_h264})")
                 return is_h264
             else:
                 self.logger.warning(f"ffprobe failed for {rtsp_url}: {result.stderr}")
@@ -263,8 +279,7 @@ class SmartPiCamNoReencode:
             if process:
                 self.ffmpeg_processes.append(process)
             else:
-                self.logger.error(f"Failed to start stream for {camera.name}")
-                return False
+                self.logger.warning(f"⚠️ Failed to start stream for {camera.name} - continuing anyway")
         
         self.logger.info("⏳ Waiting for streams to establish...")
         time.sleep(3)
