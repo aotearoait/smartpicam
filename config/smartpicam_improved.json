@@ -10,7 +10,7 @@
     "restart_retries": 3,
     "log_level": "INFO",
     "show_placeholders": true,
-    "placeholder_image": "feed-unavailable.png",
+    "placeholder_image": "camera_offline.png",
     "placeholder_text_color": "white",
     "placeholder_bg_color": "darkgray",
     "camera_retry_interval": 30,
@@ -18,8 +18,8 @@
   },
   "cameras": [
     {
-      "name": "Camera1",
-      "url": "rtsp://username:password@192.168.1.100:554/stream",
+      "name": "Living_Area",
+      "url": "rtsp://admin:Seven0f9!@192.168.1.101:554/h264Preview_01_sub",
       "window_id": 0,
       "x": 0,
       "y": 0,
@@ -28,8 +28,8 @@
       "enabled": true
     },
     {
-      "name": "Camera2",
-      "url": "rtsp://192.168.1.101:554/stream",
+      "name": "Garage",
+      "url": "rtsp://192.168.1.56:7447/wmnkT750iVQsTaR6",
       "window_id": 1,
       "x": 1280,
       "y": 0,
@@ -38,8 +38,8 @@
       "enabled": true
     },
     {
-      "name": "Camera3",
-      "url": "rtsp://192.168.1.102:554/stream",
+      "name": "Entrance",
+      "url": "rtsp://192.168.1.56:7447/czdN1E4TJo0PWnT1",
       "window_id": 2,
       "x": 1920,
       "y": 0,
@@ -48,8 +48,8 @@
       "enabled": true
     },
     {
-      "name": "Camera4",
-      "url": "rtsp://192.168.1.103:554/stream",
+      "name": "Driveway",
+      "url": "rtsp://192.168.1.56:7447/IluvbZ3Dr7HeuZl5",
       "window_id": 3,
       "x": 1280,
       "y": 360,
@@ -58,8 +58,8 @@
       "enabled": true
     },
     {
-      "name": "Camera5",
-      "url": "rtsp://192.168.1.104:554/stream",
+      "name": "Aria",
+      "url": "rtsp://admin:937JhR2021!@192.168.1.208:554/h264Preview_01_sub",
       "window_id": 4,
       "x": 1920,
       "y": 360,
@@ -68,28 +68,28 @@
       "enabled": true
     },
     {
-      "name": "Camera6",
-      "url": "rtsp://192.168.1.105:554/stream",
+      "name": "Hillmorton_Entrance",
+      "url": "rtsp://118.93.196.155:7447/Fnu8WaVBFc46YsPd",
       "window_id": 5,
       "x": 0,
       "y": 720,
       "width": 640,
       "height": 360,
-      "enabled": false
+      "enabled": true
     },
     {
-      "name": "Camera7",
-      "url": "rtsp://192.168.1.106:554/stream",
+      "name": "Hillmorton_Side",
+      "url": "rtsp://118.93.196.155:7447/rpoTHk0jjFqVeKNB",
       "window_id": 6,
       "x": 640,
       "y": 720,
       "width": 640,
       "height": 360,
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "Camera8",
-      "url": "rtsp://192.168.1.107:554/stream",
+      "url": "rtsp://camera8_url_here",
       "window_id": 7,
       "x": 0,
       "y": 1080,
@@ -99,7 +99,7 @@
     },
     {
       "name": "Camera9",
-      "url": "rtsp://192.168.1.108:554/stream",
+      "url": "rtsp://camera9_url_here",
       "window_id": 8,
       "x": 640,
       "y": 1080,
@@ -108,14 +108,14 @@
       "enabled": false
     },
     {
-      "name": "Camera10",
-      "url": "rtsp://192.168.1.109:554/stream",
+      "name": "Timaru",
+      "url": "rtsp://121.75.89.44:554/s1",
       "window_id": 9,
       "x": 1280,
       "y": 720,
       "width": 1280,
       "height": 720,
-      "enabled": false
+      "enabled": true
     }
   ]
 }
