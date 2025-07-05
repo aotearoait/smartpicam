@@ -61,7 +61,7 @@ class SmartPiCamNoReencode:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam_no_reencode")
-        self.logger.info("SmartPiCam No Re-encode v1.1 - Ultra Low Latency with Placeholders")
+        self.logger.info("SmartPiCam No Re-encode v1.2 - Ultra Low Latency with Software Fallback")
         
     def _hide_cursor(self):
         """Hide the console cursor to prevent flickering"""
@@ -175,18 +175,19 @@ class SmartPiCamNoReencode:
             ]
             self.logger.info(f"🚀 {camera.name} using COPY mode (no re-encoding) on port {udp_port}")
         else:
-            # Use hardware encoder for non-H.264 streams
+            # Use software encoder for non-H.264 streams (more compatible)
             cmd = [
                 "ffmpeg", "-y",
                 "-rtsp_transport", "tcp",
                 "-i", camera.url,
-                "-c:v", "h264_v4l2m2m",  # Hardware encoder
+                "-c:v", "libx264",  # Software encoder (fallback)
+                "-preset", "ultrafast",  # Fastest encoding
                 "-b:v", "800k",
                 "-r", "10",
                 "-f", "mpegts",
                 f"udp://127.0.0.1:{udp_port}"
             ]
-            self.logger.info(f"🚀 {camera.name} using HARDWARE ENCODE mode on port {udp_port}")
+            self.logger.info(f"🚀 {camera.name} using SOFTWARE ENCODE mode on port {udp_port}")
         
         try:
             process = subprocess.Popen(
@@ -324,10 +325,10 @@ class SmartPiCamNoReencode:
         if not self.ffmpeg_processes:
             return False
         
-        for process in self.ffmpeg_processes:
-            if process.poll() is not None:
-                return False
-        return True
+        # Consider system healthy if at least the display process is running
+        # and some camera processes are running
+        running_processes = sum(1 for p in self.ffmpeg_processes if p.poll() is None)
+        return running_processes >= 2  # At least display + 1 camera
 
     def monitor_streams(self):
         """Monitor and restart streams if they fail"""
