@@ -54,6 +54,7 @@ class SmartPiCamNoReencode:
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.camera_processes: Dict[str, subprocess.Popen] = {}  # Camera name -> process
         self.camera_modes: Dict[str, str] = {}  # Camera name -> 'copy' or 'encode'
+        self.codec_cache: Dict[str, bool] = {}  # URL -> is_h264 (CACHE!)
         self.running = False
         self.cursor_hidden = False
         self.camera_status_changed = threading.Event()
@@ -68,7 +69,7 @@ class SmartPiCamNoReencode:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam_no_reencode")
-        self.logger.info("SmartPiCam No Re-encode v2.2 - Fixed Camera Display Issue")
+        self.logger.info("SmartPiCam No Re-encode v2.3 - Speed Optimized")
         
     def _hide_cursor(self):
         """Hide the console cursor to prevent flickering"""
@@ -211,62 +212,76 @@ class SmartPiCamNoReencode:
             return False
 
     def is_h264(self, rtsp_url: str) -> bool:
-        """Check if RTSP stream uses H.264 codec using ffprobe"""
+        """Check if RTSP stream uses H.264 codec using ffprobe (CACHED)"""
+        # Check cache first
+        if rtsp_url in self.codec_cache:
+            cached_result = self.codec_cache[rtsp_url]
+            self.logger.info(f"📹 {rtsp_url}: codec=cached (H.264: {cached_result})")
+            return cached_result
+            
         try:
             cmd = [
                 "ffprobe", "-v", "error", 
                 "-select_streams", "v:0",
                 "-show_entries", "stream=codec_name",
                 "-of", "default=noprint_wrappers=1:nokey=1",
-                "-timeout", "5000000",  # 5 second timeout
+                "-timeout", "3000000",  # 3 second timeout - FASTER
                 rtsp_url
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             
             if result.returncode == 0:
                 codec = result.stdout.strip().lower()
                 is_h264 = codec == "h264"
-                self.logger.info(f"📹 {rtsp_url}: codec={codec} (H.264: {is_h264})")
+                # Cache the result
+                self.codec_cache[rtsp_url] = is_h264
+                self.logger.info(f"📹 {rtsp_url}: codec={codec} (H.264: {is_h264}) [CACHED]")
                 return is_h264
             else:
                 self.logger.warning(f"ffprobe failed for {rtsp_url}: {result.stderr}")
+                # Cache as non-H264 on failure
+                self.codec_cache[rtsp_url] = False
                 return False
                 
         except subprocess.TimeoutExpired:
             self.logger.warning(f"ffprobe timeout for {rtsp_url}")
+            # Cache as non-H264 on timeout
+            self.codec_cache[rtsp_url] = False
             return False
         except Exception as e:
             self.logger.warning(f"ffprobe error for {rtsp_url}: {e}")
+            # Cache as non-H264 on error
+            self.codec_cache[rtsp_url] = False
             return False
 
     def start_camera_stream(self, camera: Camera, udp_port: int) -> Optional[subprocess.Popen]:
         """Start individual camera stream with optimal encoding strategy"""
         start_time = time.time()
-        self.logger.info(f"📅 Starting stream for {camera.name} at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        self.logger.info(f"📅 Starting stream for {camera.name}")
         
-        # Check if stream is H.264
+        # Check if stream is H.264 (CACHED!)
         is_h264_stream = self.is_h264(camera.url)
         
         if is_h264_stream:
             # Use copy codec for H.264 streams (no re-encoding)
             cmd = [
-                "ffmpeg", "-y",
+                "ffmpeg", "-y", "-loglevel", "error",
                 "-rtsp_transport", "tcp",
-                "-timeout", "10000000",  # 10 second timeout
+                "-timeout", "5000000",  # 5 second timeout
                 "-i", camera.url,
                 "-c", "copy",  # No re-encoding!
                 "-f", "mpegts",
                 f"udp://127.0.0.1:{udp_port}"
             ]
             self.camera_modes[camera.name] = "copy"
-            self.logger.info(f"🚀 {camera.name} using COPY mode (no re-encoding) on port {udp_port}")
+            self.logger.info(f"🚀 {camera.name} COPY mode → port {udp_port}")
         else:
             # Use software encoder for non-H.264 streams (more compatible)
             cmd = [
-                "ffmpeg", "-y",
+                "ffmpeg", "-y", "-loglevel", "error",
                 "-rtsp_transport", "tcp",
-                "-timeout", "10000000",  # 10 second timeout
+                "-timeout", "5000000",  # 5 second timeout
                 "-i", camera.url,
                 "-c:v", "libx264",  # Software encoder (fallback)
                 "-preset", "ultrafast",  # Fastest encoding
@@ -276,7 +291,7 @@ class SmartPiCamNoReencode:
                 f"udp://127.0.0.1:{udp_port}"
             ]
             self.camera_modes[camera.name] = "encode"
-            self.logger.info(f"🚀 {camera.name} using SOFTWARE ENCODE mode on port {udp_port}")
+            self.logger.info(f"🚀 {camera.name} ENCODE mode → port {udp_port}")
         
         try:
             process = subprocess.Popen(
@@ -287,7 +302,7 @@ class SmartPiCamNoReencode:
             )
             
             elapsed = time.time() - start_time
-            self.logger.info(f"⏱️  {camera.name} stream started in {elapsed:.2f}s")
+            self.logger.info(f"⚡ {camera.name} started in {elapsed:.2f}s")
             return process
             
         except Exception as e:
@@ -298,7 +313,7 @@ class SmartPiCamNoReencode:
         """Test a single camera stream"""
         test_cmd = [
             "ffmpeg", "-y", "-loglevel", "error",
-            "-timeout", "8000000",  # 8 second timeout
+            "-timeout", "5000000",  # 5 second timeout - FASTER
             "-rtsp_transport", "tcp",
             "-i", camera.url,
             "-t", "1",
@@ -306,7 +321,7 @@ class SmartPiCamNoReencode:
         ]
         
         try:
-            result = subprocess.run(test_cmd, capture_output=True, timeout=12, text=True)
+            result = subprocess.run(test_cmd, capture_output=True, timeout=8, text=True)
             return result.returncode == 0
         except (subprocess.TimeoutExpired, Exception):
             return False
@@ -318,19 +333,19 @@ class SmartPiCamNoReencode:
         def test_camera(camera):
             success = self._test_single_camera(camera)
             if success:
-                self.logger.info(f"✓ {camera.name} stream OK")
+                self.logger.info(f"✓ {camera.name}")
             else:
-                self.logger.warning(f"✗ {camera.name} stream failed")
+                self.logger.warning(f"✗ {camera.name}")
             return camera, success
         
         working_cameras = []
         failed_cameras = []
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(self.cameras), 5)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(self.cameras), 8)) as executor:
             future_to_camera = {executor.submit(test_camera, camera): camera 
                                for camera in self.cameras}
             
-            for future in concurrent.futures.as_completed(future_to_camera, timeout=50):
+            for future in concurrent.futures.as_completed(future_to_camera, timeout=30):
                 try:
                     camera, success = future.result()
                     if success:
@@ -345,36 +360,51 @@ class SmartPiCamNoReencode:
         self.working_cameras = working_cameras
         self.failed_cameras = failed_cameras
         
-        self.logger.info(f"Stream test complete: {len(working_cameras)}/{len(self.cameras)} cameras working")
+        self.logger.info(f"Stream test: {len(working_cameras)}/{len(self.cameras)} working")
         
         if failed_cameras:
             failed_names = [cam.name for cam in failed_cameras]
-            self.logger.info(f"Will show placeholders for: {', '.join(failed_names)}")
+            self.logger.info(f"Placeholders: {', '.join(failed_names)}")
         
         return len(self.cameras) > 0
 
     def start_working_camera_streams(self):
-        """Start UDP streams for working cameras"""
+        """Start UDP streams for working cameras IN PARALLEL"""
         if not self.working_cameras:
-            self.logger.warning("No working cameras to start UDP streams for")
+            self.logger.warning("No working cameras to start")
             return
             
-        self.logger.info("Starting UDP streams for working cameras...")
+        self.logger.info("Starting UDP streams in parallel...")
         
-        for i, camera in enumerate(self.cameras):
-            if camera in self.working_cameras:
-                udp_port = self.base_udp_port + i
-                process = self.start_camera_stream(camera, udp_port)
-                if process:
-                    self.camera_processes[camera.name] = process
-                    self.logger.info(f"✓ {camera.name} UDP stream active on port {udp_port}")
-                else:
-                    self.logger.warning(f"⚠️ Failed to start UDP stream for {camera.name}")
-                    # Move to failed list
-                    if camera in self.working_cameras:
-                        self.working_cameras.remove(camera)
-                    if camera not in self.failed_cameras:
-                        self.failed_cameras.append(camera)
+        def start_stream(camera_info):
+            i, camera = camera_info
+            udp_port = self.base_udp_port + i
+            process = self.start_camera_stream(camera, udp_port)
+            return camera.name, process
+        
+        # Start all streams in parallel
+        camera_indexes = [(self.cameras.index(cam), cam) for cam in self.working_cameras]
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.working_cameras)) as executor:
+            future_to_camera = {executor.submit(start_stream, cam_info): cam_info[1] 
+                               for cam_info in camera_indexes}
+            
+            for future in concurrent.futures.as_completed(future_to_camera, timeout=15):
+                try:
+                    camera_name, process = future.result()
+                    if process:
+                        self.camera_processes[camera_name] = process
+                        self.logger.info(f"✓ {camera_name} UDP active")
+                    else:
+                        camera = future_to_camera[future]
+                        self.logger.warning(f"⚠️ {camera.name} UDP failed")
+                        if camera in self.working_cameras:
+                            self.working_cameras.remove(camera)
+                        if camera not in self.failed_cameras:
+                            self.failed_cameras.append(camera)
+                except Exception as e:
+                    camera = future_to_camera[future]
+                    self.logger.warning(f"Stream start error for {camera.name}: {e}")
 
     def _build_ffmpeg_grid_command(self) -> List[str]:
         """Build FFmpeg command for grid layout with placeholders for failed cameras"""
@@ -470,8 +500,8 @@ class SmartPiCamNoReencode:
         
         # Wait for UDP streams to establish
         if self.camera_processes:
-            self.logger.info("Waiting for UDP streams to establish...")
-            time.sleep(5)  # Give more time for UDP streams
+            self.logger.info("Waiting for UDP streams...")
+            time.sleep(2)  # Reduced from 5s to 2s
             
             # Verify UDP streams are still running
             active_streams = []
@@ -479,7 +509,7 @@ class SmartPiCamNoReencode:
                 if process.poll() is None:
                     active_streams.append(camera_name)
                 else:
-                    self.logger.warning(f"UDP stream for {camera_name} died, moving to failed")
+                    self.logger.warning(f"UDP {camera_name} died")
                     # Find camera and move to failed
                     camera = next((c for c in self.cameras if c.name == camera_name), None)
                     if camera and camera in self.working_cameras:
@@ -487,16 +517,16 @@ class SmartPiCamNoReencode:
                         self.failed_cameras.append(camera)
                     del self.camera_processes[camera_name]
             
-            self.logger.info(f"Active UDP streams: {active_streams}")
+            self.logger.info(f"Active streams: {active_streams}")
         else:
-            self.logger.warning("No UDP streams started - all cameras failed")
+            self.logger.warning("No UDP streams - all cameras failed")
             
         cmd = self._build_ffmpeg_grid_command()
         if not cmd:
             self.logger.error("Failed to build FFmpeg command")
             return False
         
-        self.logger.info("Starting FFmpeg grid display with working cameras...")
+        self.logger.info("Starting FFmpeg grid display...")
         self.logger.info(f"FFmpeg command: {' '.join(cmd[:20])}...")  # Log first part of command
         
         try:
