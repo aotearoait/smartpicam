@@ -45,7 +45,7 @@ class DisplayConfig:
     enable_camera_retry: bool = True
 
 class SmartPiCamNoReencode:
-    def __init__(self, config_path: str = "config/smartpicam.json"):
+    def __init__(self, config_path: str = "config/smartpicam_improved.json"):
         self.config_path = config_path
         self.cameras: List[Camera] = []
         self.working_cameras: List[Camera] = []
@@ -53,6 +53,7 @@ class SmartPiCamNoReencode:
         self.display_config: DisplayConfig = None
         self.ffmpeg_process: Optional[subprocess.Popen] = None
         self.camera_processes: Dict[str, subprocess.Popen] = {}  # Camera name -> process
+        self.camera_modes: Dict[str, str] = {}  # Camera name -> 'copy' or 'encode'
         self.running = False
         self.cursor_hidden = False
         self.camera_status_changed = threading.Event()
@@ -67,7 +68,7 @@ class SmartPiCamNoReencode:
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger("smartpicam_no_reencode")
-        self.logger.info("SmartPiCam No Re-encode v2.0 - Ultra Low Latency with Placeholders")
+        self.logger.info("SmartPiCam No Re-encode v2.2 - Fixed Camera Display Issue")
         
     def _hide_cursor(self):
         """Hide the console cursor to prevent flickering"""
@@ -217,6 +218,7 @@ class SmartPiCamNoReencode:
                 "-select_streams", "v:0",
                 "-show_entries", "stream=codec_name",
                 "-of", "default=noprint_wrappers=1:nokey=1",
+                "-timeout", "5000000",  # 5 second timeout
                 rtsp_url
             ]
             
@@ -251,17 +253,20 @@ class SmartPiCamNoReencode:
             cmd = [
                 "ffmpeg", "-y",
                 "-rtsp_transport", "tcp",
+                "-timeout", "10000000",  # 10 second timeout
                 "-i", camera.url,
                 "-c", "copy",  # No re-encoding!
                 "-f", "mpegts",
                 f"udp://127.0.0.1:{udp_port}"
             ]
+            self.camera_modes[camera.name] = "copy"
             self.logger.info(f"🚀 {camera.name} using COPY mode (no re-encoding) on port {udp_port}")
         else:
             # Use software encoder for non-H.264 streams (more compatible)
             cmd = [
                 "ffmpeg", "-y",
                 "-rtsp_transport", "tcp",
+                "-timeout", "10000000",  # 10 second timeout
                 "-i", camera.url,
                 "-c:v", "libx264",  # Software encoder (fallback)
                 "-preset", "ultrafast",  # Fastest encoding
@@ -270,6 +275,7 @@ class SmartPiCamNoReencode:
                 "-f", "mpegts",
                 f"udp://127.0.0.1:{udp_port}"
             ]
+            self.camera_modes[camera.name] = "encode"
             self.logger.info(f"🚀 {camera.name} using SOFTWARE ENCODE mode on port {udp_port}")
         
         try:
@@ -300,7 +306,7 @@ class SmartPiCamNoReencode:
         ]
         
         try:
-            result = subprocess.run(test_cmd, capture_output=True, timeout=10, text=True)
+            result = subprocess.run(test_cmd, capture_output=True, timeout=12, text=True)
             return result.returncode == 0
         except (subprocess.TimeoutExpired, Exception):
             return False
@@ -324,7 +330,7 @@ class SmartPiCamNoReencode:
             future_to_camera = {executor.submit(test_camera, camera): camera 
                                for camera in self.cameras}
             
-            for future in concurrent.futures.as_completed(future_to_camera, timeout=40):
+            for future in concurrent.futures.as_completed(future_to_camera, timeout=50):
                 try:
                     camera, success = future.result()
                     if success:
@@ -349,6 +355,10 @@ class SmartPiCamNoReencode:
 
     def start_working_camera_streams(self):
         """Start UDP streams for working cameras"""
+        if not self.working_cameras:
+            self.logger.warning("No working cameras to start UDP streams for")
+            return
+            
         self.logger.info("Starting UDP streams for working cameras...")
         
         for i, camera in enumerate(self.cameras):
@@ -357,49 +367,60 @@ class SmartPiCamNoReencode:
                 process = self.start_camera_stream(camera, udp_port)
                 if process:
                     self.camera_processes[camera.name] = process
-                    self.logger.info(f"✓ {camera.name} UDP stream active")
+                    self.logger.info(f"✓ {camera.name} UDP stream active on port {udp_port}")
                 else:
                     self.logger.warning(f"⚠️ Failed to start UDP stream for {camera.name}")
                     # Move to failed list
-                    self.working_cameras.remove(camera)
-                    self.failed_cameras.append(camera)
+                    if camera in self.working_cameras:
+                        self.working_cameras.remove(camera)
+                    if camera not in self.failed_cameras:
+                        self.failed_cameras.append(camera)
 
     def _build_ffmpeg_grid_command(self) -> List[str]:
         """Build FFmpeg command for grid layout with placeholders for failed cameras"""
         if not self.cameras:
             return []
         
-        cmd = ["ffmpeg", "-y", "-loglevel", "warning"]
+        cmd = ["ffmpeg", "-y", "-loglevel", "info"]
         
         # Add timeout and thread settings to prevent hangs
-        cmd.extend(["-thread_queue_size", "512"])
+        cmd.extend(["-thread_queue_size", "1024"])
         
         # Build input list with both working cameras (UDP) and placeholders
         input_sources = []
         
         for i, camera in enumerate(self.cameras):
-            input_index = len(input_sources)
+            # Check if this camera has an active UDP process
+            has_active_udp = camera.name in self.camera_processes and self.camera_processes[camera.name].poll() is None
             
-            if camera in self.working_cameras and camera.name in self.camera_processes:
+            if camera in self.working_cameras and has_active_udp:
                 # Working camera - use UDP input
                 udp_port = self.base_udp_port + i
-                cmd.extend(["-i", f"udp://127.0.0.1:{udp_port}"])
-                input_sources.append(("camera", camera))
-                self.logger.debug(f"Input {input_index}: UDP camera {camera.name} on port {udp_port}")
+                cmd.extend([
+                    "-timeout", "30000000",  # 30 second timeout for UDP
+                    "-i", f"udp://127.0.0.1:{udp_port}?timeout=5000000"
+                ])
+                input_sources.append(("camera", camera, udp_port))
+                self.logger.info(f"Input {len(input_sources)-1}: UDP camera {camera.name} on port {udp_port}")
             else:
                 # Failed camera - use placeholder
                 reason = "timeout" if camera in self.failed_cameras else "offline"
                 placeholder_input = self._create_placeholder_for_camera(camera, reason)
                 cmd.extend(placeholder_input.split())
-                input_sources.append(("placeholder", camera))
-                self.logger.debug(f"Input {input_index}: Placeholder for {camera.name} ({reason})")
+                input_sources.append(("placeholder", camera, None))
+                self.logger.info(f"Input {len(input_sources)-1}: Placeholder for {camera.name} ({reason})")
         
         # Build filter complex
         filter_parts = []
         
         # Scale each input to its target size
-        for i, (source_type, camera) in enumerate(input_sources):
-            scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
+        for i, (source_type, camera, port) in enumerate(input_sources):
+            if source_type == "camera":
+                # For UDP camera inputs, add buffering
+                scale_filter = f"[{i}:v]fps=25,scale={camera.width}:{camera.height}[v{i}]"
+            else:
+                # For placeholder inputs
+                scale_filter = f"[{i}:v]scale={camera.width}:{camera.height}[v{i}]"
             filter_parts.append(scale_filter)
         
         # Create black background
@@ -407,7 +428,7 @@ class SmartPiCamNoReencode:
         
         # Overlay each camera at its position
         overlay_chain = "[bg]"
-        for i, (source_type, camera) in enumerate(input_sources):
+        for i, (source_type, camera, port) in enumerate(input_sources):
             if i == len(input_sources) - 1:
                 # Last overlay
                 overlay = f"{overlay_chain}[v{i}]overlay={camera.x}:{camera.y},format=rgb565le[out]"
@@ -448,15 +469,35 @@ class SmartPiCamNoReencode:
         self.start_working_camera_streams()
         
         # Wait for UDP streams to establish
-        time.sleep(2)
+        if self.camera_processes:
+            self.logger.info("Waiting for UDP streams to establish...")
+            time.sleep(5)  # Give more time for UDP streams
+            
+            # Verify UDP streams are still running
+            active_streams = []
+            for camera_name, process in list(self.camera_processes.items()):
+                if process.poll() is None:
+                    active_streams.append(camera_name)
+                else:
+                    self.logger.warning(f"UDP stream for {camera_name} died, moving to failed")
+                    # Find camera and move to failed
+                    camera = next((c for c in self.cameras if c.name == camera_name), None)
+                    if camera and camera in self.working_cameras:
+                        self.working_cameras.remove(camera)
+                        self.failed_cameras.append(camera)
+                    del self.camera_processes[camera_name]
+            
+            self.logger.info(f"Active UDP streams: {active_streams}")
+        else:
+            self.logger.warning("No UDP streams started - all cameras failed")
             
         cmd = self._build_ffmpeg_grid_command()
         if not cmd:
             self.logger.error("Failed to build FFmpeg command")
             return False
         
-        self.logger.info("Starting FFmpeg grid display with placeholders...")
-        self.logger.info(f"FFmpeg command: {' '.join(cmd)}")
+        self.logger.info("Starting FFmpeg grid display with working cameras...")
+        self.logger.info(f"FFmpeg command: {' '.join(cmd[:20])}...")  # Log first part of command
         
         try:
             env = os.environ.copy()
@@ -494,8 +535,9 @@ class SmartPiCamNoReencode:
         """Log the camera layout"""
         self.logger.info("📺 Camera layout:")
         for camera in self.cameras:
-            if camera in self.working_cameras:
-                status = "WORKING (COPY)" if camera.name in self.camera_processes else "WORKING (SW)"
+            if camera in self.working_cameras and camera.name in self.camera_processes:
+                mode = self.camera_modes.get(camera.name, "unknown")
+                status = f"WORKING ({mode.upper()})"
             else:
                 status = "PLACEHOLDER"
             self.logger.info(f"  {camera.name}: ({camera.x},{camera.y}) {camera.width}x{camera.height} [{status}]")
@@ -565,6 +607,7 @@ class SmartPiCamNoReencode:
                 self.logger.warning(f"Error stopping {camera_name}: {e}")
         
         self.camera_processes.clear()
+        self.camera_modes.clear()
         
         self._show_cursor()
         self.logger.info("✅ All processes stopped")
