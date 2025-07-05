@@ -256,42 +256,49 @@ class SmartPiCamNoReencode:
             return False
 
     def start_camera_stream(self, camera: Camera, udp_port: int) -> Optional[subprocess.Popen]:
-        """Start individual camera stream with optimal encoding strategy"""
+        """Start individual camera stream to UDP port with ultra-low latency"""
         start_time = time.time()
-        self.logger.info(f"📅 Starting stream for {camera.name}")
         
-        # Check if stream is H.264 (CACHED!)
-        is_h264_stream = self.is_h264(camera.url)
+        # Check if camera uses H.264 (with caching)
+        is_h264_stream = self.is_h264(camera.rtsp_url)
+        mode = "COPY" if is_h264_stream else "ENCODE"
+        self.camera_modes[camera.name] = mode.lower()
+        
+        self.logger.info(f"🚀 {camera.name} {mode} mode → port {udp_port}")
         
         if is_h264_stream:
-            # Use copy codec for H.264 streams (no re-encoding)
+            # H.264 stream - use copy mode with ultra-low latency
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-rtsp_transport", "tcp",
                 "-timeout", "5000000",  # 5 second timeout
-                "-i", camera.url,
-                "-c", "copy",  # No re-encoding!
+                "-fflags", "nobuffer",  # Disable input buffering
+                "-flags", "low_delay",  # Low delay mode
+                "-i", camera.rtsp_url,
+                "-c", "copy",
+                "-avoid_negative_ts", "make_zero",  # Handle timestamp issues
+                "-fflags", "+genpts",  # Generate presentation timestamps
                 "-f", "mpegts",
-                f"udp://127.0.0.1:{udp_port}"
+                f"udp://127.0.0.1:{udp_port}?pkt_size=1316"
             ]
-            self.camera_modes[camera.name] = "copy"
-            self.logger.info(f"🚀 {camera.name} COPY mode → port {udp_port}")
         else:
-            # Use software encoder for non-H.264 streams (more compatible)
+            # Non-H.264 stream - encode with ultra-low latency
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-rtsp_transport", "tcp",
                 "-timeout", "5000000",  # 5 second timeout
-                "-i", camera.url,
-                "-c:v", "libx264",  # Software encoder (fallback)
-                "-preset", "ultrafast",  # Fastest encoding
-                "-b:v", "800k",
-                "-r", "10",
+                "-fflags", "nobuffer",  # Disable input buffering
+                "-flags", "low_delay",  # Low delay mode
+                "-i", camera.rtsp_url,
+                "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+                "-x264-params", "sliced-threads=0:sync-lookahead=0",  # Zero latency encoding
+                "-g", "15",  # GOP size for low latency
+                "-c:a", "aac", "-b:a", "128k",
+                "-avoid_negative_ts", "make_zero",
+                "-fflags", "+genpts",
                 "-f", "mpegts",
-                f"udp://127.0.0.1:{udp_port}"
+                f"udp://127.0.0.1:{udp_port}?pkt_size=1316"
             ]
-            self.camera_modes[camera.name] = "encode"
-            self.logger.info(f"🚀 {camera.name} ENCODE mode → port {udp_port}")
         
         try:
             process = subprocess.Popen(
@@ -413,8 +420,14 @@ class SmartPiCamNoReencode:
         
         cmd = ["ffmpeg", "-y", "-loglevel", "info"]
         
-        # Add timeout and thread settings to prevent hangs
-        cmd.extend(["-thread_queue_size", "1024"])
+        # Add ultra-low latency settings to prevent hangs and reduce lag
+        cmd.extend([
+            "-thread_queue_size", "1024",
+            "-fflags", "nobuffer",      # Disable input buffering
+            "-flags", "low_delay",      # Low delay mode
+            "-probesize", "32",         # Minimal probe size
+            "-analyzeduration", "0"     # Skip stream analysis
+        ])
         
         # Build input list with both working cameras (UDP) and placeholders
         input_sources = []
