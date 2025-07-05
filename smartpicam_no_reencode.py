@@ -267,11 +267,10 @@ class SmartPiCamNoReencode:
         self.logger.info(f"🚀 {camera.name} {mode} mode → port {udp_port}")
         
         if is_h264_stream:
-            # H.264 stream - use hardware-accelerated copy mode for Pi 5
+            # H.264 stream - use copy mode with Pi 5 hardware acceleration
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "error",
-                "-hwaccel", "drm",  # Pi 5 hardware acceleration
-                "-hwaccel_output_format", "drm_prime",  # GPU memory format
+                "-hwaccel", "auto",  # Auto-detect best hardware acceleration
                 "-rtsp_transport", "tcp",
                 "-timeout", "5000000",  # 5 second timeout
                 "-fflags", "nobuffer",  # Disable input buffering
@@ -285,18 +284,18 @@ class SmartPiCamNoReencode:
                 f"udp://127.0.0.1:{udp_port}?pkt_size=1316"
             ]
         else:
-            # Non-H.264 stream - use Pi 5 hardware-accelerated encoding
+            # Non-H.264 stream - use optimized encoding for Pi 5
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "error",
-                "-hwaccel", "drm",  # Pi 5 hardware acceleration
                 "-rtsp_transport", "tcp",
                 "-timeout", "5000000",  # 5 second timeout
                 "-fflags", "nobuffer",  # Disable input buffering
                 "-flags", "low_delay",  # Low delay mode
                 "-i", camera.url,
-                "-c:v", "h264_v4l2m2m",  # Pi 5 hardware H.264 encoder
-                "-b:v", "2M",  # 2Mbps bitrate for quality/performance balance
-                "-maxrate", "2M", "-bufsize", "1M",  # Rate control
+                "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
+                "-x264-params", "threads=2:sliced-threads=0:sync-lookahead=0",  # Optimized for Pi 5
+                "-b:v", "1M",  # 1Mbps bitrate for Pi 5 performance
+                "-maxrate", "1M", "-bufsize", "500k",  # Conservative rate control
                 "-g", "15",  # GOP size for low latency
                 "-avoid_negative_ts", "make_zero",  # Handle timestamp issues
                 "-fflags", "+genpts",  # Generate presentation timestamps
@@ -425,9 +424,8 @@ class SmartPiCamNoReencode:
         
         cmd = ["ffmpeg", "-y", "-loglevel", "info"]
         
-        # Add Pi 5 hardware acceleration and ultra-low latency settings
+        # Add ultra-low latency settings (no hwaccel for UDP grid display)
         cmd.extend([
-            "-hwaccel", "drm",          # Pi 5 hardware acceleration
             "-thread_queue_size", "1024",
             "-fflags", "nobuffer",      # Disable input buffering
             "-flags", "low_delay",      # Low delay mode
